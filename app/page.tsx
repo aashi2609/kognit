@@ -6,7 +6,6 @@ import { ActIntro } from "@/components/act-intro"
 import { ActCloneConsole } from "@/components/act-clone-console"
 import { ActInterviewFreeze } from "@/components/act-interview-freeze"
 import { ActSynapse } from "@/components/act-synapse"
-import { ArenaBackdrop } from "@/components/arena-backdrop"
 import { OutroContent } from "@/components/outro-content"
 
 type Act = "intro" | "clone" | "interview" | "synapse" | "unlocked"
@@ -75,19 +74,21 @@ export default function Page() {
   }, [unlocked, handleUnlock])
 
   return (
-    <main className="relative bg-background text-foreground">
+    <main className="relative text-foreground">
       {/* The narrative stage — fixed full viewport, slides up & unmounts on unlock */}
       <AnimatePresence>
         {!unlocked && (
           <motion.div
             key="stage"
-            className="fixed inset-0 z-20 h-screen w-full overflow-hidden bg-background"
+            className="fixed inset-0 z-20 h-screen w-full overflow-hidden"
             initial={false}
             exit={{ y: "-100%" }}
             transition={{ duration: 0.85, ease: [0.7, 0, 0.2, 1] }}
           >
-            {/* arena backdrop only for the console acts; the intro has its own room */}
-            {inArena && <ArenaBackdrop lit />}
+            {/* Semi-transparent overlay for arena acts (persistent bg shows through) */}
+            {inArena && (
+              <div className="absolute inset-0 bg-background/60 backdrop-blur-sm" />
+            )}
             {inArena && (
               <div className="pointer-events-none absolute inset-0 tactical-grid opacity-[0.15]" />
             )}

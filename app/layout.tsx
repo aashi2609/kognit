@@ -2,6 +2,8 @@ import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
+import { MouseParallaxProvider } from '@/components/mouse-parallax-provider'
+import { CyberClassroomBg } from '@/components/cyber-classroom-bg'
 
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
 const geistMono = Geist_Mono({
@@ -46,10 +48,17 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`dark bg-background ${geistSans.variable} ${geistMono.variable}`}
+      className={`dark ${geistSans.variable} ${geistMono.variable}`}
     >
-      <body className="font-sans antialiased bg-background text-foreground">
-        {children}
+      <body className="font-sans antialiased text-foreground">
+        <MouseParallaxProvider>
+          {/* Persistent cyber-classroom environment — stays continuous across all route transitions */}
+          <CyberClassroomBg />
+          {/* Page content renders above the background */}
+          <div className="relative z-10">
+            {children}
+          </div>
+        </MouseParallaxProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

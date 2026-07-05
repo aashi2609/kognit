@@ -13,8 +13,10 @@ type Phase = "dark" | "reveal" | "walk" | "juggle" | "lock" | "confirm"
 /**
  * ACT 1 — the cinematic hero. A colorful but dim classroom is lit by pulling
  * the hanging lamp cord, casting a warm cone of light that reveals the student
- * juggling glowing letters into the title "KOGNIT". After the final green
- * pulse it waits 600ms and calls `onComplete` to advance into the arena.
+ * juggling glowing letters into the title "KOGNIT".
+ *
+ * UPGRADED: Letters now launch from hand coordinates on parabolic arcs.
+ * Arms follow independent overlapping elliptical cascade paths.
  */
 export function ActIntro({ onComplete }: { onComplete: () => void }) {
   const [phase, setPhase] = useState<Phase>("dark")
@@ -22,38 +24,62 @@ export function ActIntro({ onComplete }: { onComplete: () => void }) {
   const timers = useRef<number[]>([])
   const startedRef = useRef(false)
 
-  // schedule the full reveal timeline exactly once when the cord is pulled
   const handlePull = useCallback(() => {
     if (startedRef.current) return
     startedRef.current = true
     setPhase("reveal")
     timers.current = [
-      // 200ms after the cone activates the student walks out of the shadows
       window.setTimeout(() => setPhase("walk"), 200),
-      // once centered, begin the hand-juggling of the letters
       window.setTimeout(() => setPhase("juggle"), 1500),
       window.setTimeout(() => setPhase("lock"), 3800),
       window.setTimeout(() => setPhase("confirm"), 5600),
-      // final letters lock with a green pulse -> hold -> advance
       window.setTimeout(onComplete, 6800),
     ]
   }, [onComplete])
 
-  // clean up any pending timers on unmount
   useEffect(() => () => timers.current.forEach(clearTimeout), [])
-
-  const chaos = useMemo(
-    () =>
-      LETTERS.map((_, i) => ({
-        x: [-120, 96, -54, 78, -96, 54][i],
-        y: [-30, -70, 10, -84, -16, -54][i],
-        r: [-24, 28, -14, 22, -28, 16][i],
-      })),
-    [],
-  )
 
   const juggling = phase === "juggle"
   const locked = phase === "lock" || phase === "confirm"
+
+  // Parabolic arc parameters for each letter
+  // Each letter launches from a hand position and arcs to its final grid slot
+  const letterArcs = useMemo(
+    () =>
+      LETTERS.map((_, i) => {
+        // Alternate launch from left hand (even) and right hand (odd)
+        const fromLeft = i % 2 === 0
+        const startX = fromLeft ? -60 : 60
+        const startY = 50 // hand height relative to title
+        // Final position: evenly spaced in the title bar
+        const finalX = (i - 2.5) * 38
+        const finalY = 0
+        // Parabolic peak height (higher arc for letters launched from farther)
+        const peakY = -80 - Math.abs(startX - finalX) * 0.3
+
+        return { startX, startY, finalX, finalY, peakY, fromLeft }
+      }),
+    [],
+  )
+
+  /**
+   * Compute parabolic keyframes for a letter arc.
+   * Uses parametric quadratic: y(t) = startY + (peakY - startY)*4t(1-t) mapped to keyframes
+   */
+  function getArcKeyframes(arc: (typeof letterArcs)[number]) {
+    const steps = 8
+    const xs: number[] = []
+    const ys: number[] = []
+    for (let s = 0; s <= steps; s++) {
+      const t = s / steps
+      xs.push(arc.startX + (arc.finalX - arc.startX) * t)
+      // Quadratic arc: peaks at t=0.5
+      const linearY = arc.startY + (arc.finalY - arc.startY) * t
+      const arcOffset = (arc.peakY - Math.max(arc.startY, arc.finalY)) * 4 * t * (1 - t)
+      ys.push(linearY + arcOffset)
+    }
+    return { xs, ys }
+  }
 
   return (
     <div className="relative flex h-full w-full items-center justify-center overflow-hidden">
@@ -113,64 +139,79 @@ export function ActIntro({ onComplete }: { onComplete: () => void }) {
             animate={{ opacity: 1 }}
             transition={{ duration: 0.5, delay: 0.15 }}
           >
-            {/* letters */}
+            {/* Letters with parabolic arc animation */}
             <div className="relative mb-2 flex h-40 items-end justify-center gap-1 sm:gap-2">
-              {LETTERS.map((letter, i) => (
-                <motion.span
-                  key={letter + i}
-                  className="relative font-mono text-6xl font-bold sm:text-7xl md:text-8xl"
-                  initial={{ opacity: 0, x: chaos[i].x, y: chaos[i].y, rotate: chaos[i].r }}
-                  animate={
-                    juggling
-                      ? {
-                          opacity: 1,
-                          x: [chaos[i].x, chaos[i].x * -0.4, chaos[i].x * 0.3],
-                          y: [chaos[i].y, chaos[i].y - 26, chaos[i].y + 10],
-                          rotate: [chaos[i].r, -chaos[i].r, chaos[i].r * 0.5],
-                        }
-                      : locked
-                        ? { opacity: 1, x: 0, y: 0, rotate: 0 }
-                        : { opacity: 0 }
-                  }
-                  transition={
-                    juggling
-                      ? {
-                          duration: 1.1,
-                          repeat: Infinity,
-                          repeatType: "reverse",
-                          ease: "easeInOut",
-                          delay: i * 0.08,
-                        }
-                      : { type: "spring", stiffness: 220, damping: 16, delay: i * 0.07 }
-                  }
-                  style={{
-                    color: locked ? "oklch(0.92 0.14 165)" : "oklch(0.85 0.09 350)",
-                    textShadow: locked
-                      ? "0 0 10px oklch(0.95 0.15 165 / 90%), 0 0 34px oklch(0.86 0.14 165 / 70%)"
-                      : "0 0 18px oklch(0.82 0.08 350 / 55%)",
-                  }}
-                >
-                  {letter}
-                  {phase === "confirm" && (
-                    <motion.span
-                      className="absolute inset-0 flex items-center justify-center"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: [0, 1, 0] }}
-                      transition={{ duration: 0.5, delay: i * 0.09 }}
-                      style={{
-                        color: "oklch(0.96 0.14 165)",
-                        textShadow: "0 0 34px oklch(0.92 0.15 165)",
-                      }}
-                      aria-hidden="true"
-                    >
-                      {letter}
-                    </motion.span>
-                  )}
-                </motion.span>
-              ))}
+              {LETTERS.map((letter, i) => {
+                const arc = letterArcs[i]
+                const kf = getArcKeyframes(arc)
+
+                return (
+                  <motion.span
+                    key={letter + i}
+                    className="relative font-mono text-6xl font-bold sm:text-7xl md:text-8xl"
+                    initial={{
+                      opacity: 0,
+                      x: arc.startX,
+                      y: arc.startY,
+                    }}
+                    animate={
+                      juggling
+                        ? {
+                            opacity: 1,
+                            x: kf.xs,
+                            y: kf.ys,
+                          }
+                        : locked
+                          ? { opacity: 1, x: 0, y: 0 }
+                          : { opacity: 0, x: arc.startX, y: arc.startY }
+                    }
+                    transition={
+                      juggling
+                        ? {
+                            duration: 1.4,
+                            repeat: Infinity,
+                            repeatType: "reverse",
+                            ease: "easeInOut",
+                            delay: i * 0.12,
+                          }
+                        : {
+                            type: "spring",
+                            stiffness: 220,
+                            damping: 16,
+                            delay: i * 0.07,
+                          }
+                    }
+                    style={{
+                      color: locked
+                        ? "oklch(0.92 0.14 165)"
+                        : "oklch(0.85 0.09 350)",
+                      textShadow: locked
+                        ? "0 0 10px oklch(0.95 0.15 165 / 90%), 0 0 34px oklch(0.86 0.14 165 / 70%)"
+                        : "0 0 18px oklch(0.82 0.08 350 / 55%)",
+                    }}
+                  >
+                    {letter}
+                    {phase === "confirm" && (
+                      <motion.span
+                        className="absolute inset-0 flex items-center justify-center"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: [0, 1, 0] }}
+                        transition={{ duration: 0.5, delay: i * 0.09 }}
+                        style={{
+                          color: "oklch(0.96 0.14 165)",
+                          textShadow: "0 0 34px oklch(0.92 0.15 165)",
+                        }}
+                        aria-hidden="true"
+                      >
+                        {letter}
+                      </motion.span>
+                    )}
+                  </motion.span>
+                )
+              })}
             </div>
 
-            {/* character walks out of the left shadows into the cone */}
+            {/* Character walks out of the left shadows into the cone */}
             <motion.div
               className="relative h-[280px] w-[230px]"
               initial={{ x: "-62vw", opacity: 0 }}

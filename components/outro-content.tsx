@@ -1,6 +1,7 @@
 "use client"
 
 import { motion } from "motion/react"
+import Link from "next/link"
 import { useRef, useState } from "react"
 import { SiteFooter } from "@/components/site-footer"
 import {
@@ -42,6 +43,8 @@ const PILLARS: {
  * Content revealed after the resolution unlocks the Main Arena. A kinetic
  * tactical diagnostic HUD with live micro-interaction engines per card and a
  * dual authentication payoff.
+ *
+ * UPGRADED: CTA buttons now route to /signup and /login via Next.js Link.
  */
 export function OutroContent() {
   return (
@@ -92,25 +95,24 @@ export function OutroContent() {
 
           <div className="flex w-full max-w-md flex-col items-stretch gap-4 sm:flex-row sm:justify-center">
             {/* Primary — emerald glass fill with border-pulse trace on hover */}
-            <button
-              type="button"
-              className="group relative overflow-hidden rounded-lg border border-emerald-400/50 bg-emerald-500/15 px-8 py-4 font-mono text-sm uppercase tracking-[0.2em] text-emerald-200 transition-all duration-300 hover:bg-emerald-500/25 hover:shadow-[0_0_30px_var(--emerald-glow)]"
+            <Link
+              href="/signup"
+              className="group relative overflow-hidden rounded-lg border border-emerald-400/50 bg-emerald-500/15 px-8 py-4 text-center font-mono text-sm uppercase tracking-[0.2em] text-emerald-200 transition-all duration-300 hover:bg-emerald-500/25 hover:shadow-[0_0_30px_var(--emerald-glow)]"
             >
               <span
                 className="pointer-events-none absolute inset-0 rounded-lg border border-emerald-300/0 group-hover:border-emerald-300/80 group-hover:animate-pulse"
                 aria-hidden="true"
               />
               [ CREATE AN ACCOUNT ]
-            </button>
+            </Link>
 
             {/* Secondary — ghost, turns soft pink with neon glow on hover */}
-            <button
-              type="button"
-              className="rounded-lg border border-white/10 bg-transparent px-8 py-4 font-mono text-sm uppercase tracking-[0.2em] text-muted-foreground transition-all duration-300 hover:border-pink-300/50 hover:text-pink-200 hover:shadow-[0_0_26px_var(--pink-glow)]"
-              style={{ ["--pink-hover" as string]: "oklch(0.82 0.09 350)" }}
+            <Link
+              href="/login"
+              className="rounded-lg border border-white/10 bg-transparent px-8 py-4 text-center font-mono text-sm uppercase tracking-[0.2em] text-muted-foreground transition-all duration-300 hover:border-pink-300/50 hover:text-pink-200 hover:shadow-[0_0_26px_var(--pink-glow)]"
             >
-              [ ACCESS ACCOUNT / LOGIN ]
-            </button>
+              [ ACCESS CORE ]
+            </Link>
           </div>
         </div>
       </div>

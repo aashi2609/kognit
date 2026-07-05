@@ -20,11 +20,18 @@ const THOUGHTS = [
   "What's the space cost?",
   "How does merge work?",
   "Did I miss an edge case?",
+  "I can't think straight...",
+  "They're watching me...",
+  "Why is this so hard?",
+  "Should I ask to clarify?",
 ]
 
 /**
  * A frantic looping ticker of panic-thoughts floating inside the
  * "mental workspace" brain bubble.
+ *
+ * UPGRADED: Bolder font weight, stronger text shadows for legibility,
+ * more desperate thoughts added to the rotation.
  */
 export function BrainTicker() {
   const items = useMemo(
@@ -33,9 +40,9 @@ export function BrainTicker() {
         text: t,
         top: `${(i * 61) % 88}%`,
         left: `${(i * 47) % 78}%`,
-        dur: 3 + (i % 4) * 0.8,
-        delay: (i % 6) * 0.35,
-        size: i % 3 === 0 ? "text-[11px]" : "text-[10px]",
+        dur: 2.8 + (i % 4) * 0.6,
+        delay: (i % 8) * 0.3,
+        size: i % 3 === 0 ? "text-[11px] font-bold" : "text-[10px] font-semibold",
       })),
     [],
   )
@@ -45,11 +52,16 @@ export function BrainTicker() {
       {items.map((it, i) => (
         <motion.span
           key={i}
-          className={`absolute whitespace-nowrap font-mono ${it.size} text-accent/70`}
-          style={{ top: it.top, left: it.left }}
+          className={`absolute whitespace-nowrap font-mono ${it.size} text-accent/80`}
+          style={{
+            top: it.top,
+            left: it.left,
+            textShadow:
+              "0 0 6px oklch(0.78 0.07 350 / 60%), 0 1px 3px oklch(0 0 0 / 50%)",
+          }}
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{
-            opacity: [0, 0.9, 0.9, 0],
+            opacity: [0, 0.95, 0.95, 0],
             scale: [0.8, 1, 1, 0.85],
             y: [6, -10, -18, -28],
           }}
