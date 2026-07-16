@@ -4,6 +4,7 @@ import { motion } from "motion/react"
 import Link from "next/link"
 import { useRef, useState } from "react"
 import { SiteFooter } from "@/components/site-footer"
+import { WavesShaderBg } from "@/components/waves-shader-bg"
 import {
   BracketReassemble,
   CountdownRing,
@@ -48,9 +49,11 @@ const PILLARS: {
  */
 export function OutroContent() {
   return (
-    <section className="relative border-t border-white/5 bg-background">
-      <div className="pointer-events-none absolute inset-0 tactical-grid opacity-[0.12]" />
-      <div className="relative mx-auto max-w-6xl px-5 py-24 sm:px-8">
+    <section className="relative overflow-hidden border-t border-white/5">
+      {/* Animated WebGL waves shader background */}
+      <WavesShaderBg />
+      <div className="pointer-events-none absolute inset-0 tactical-grid opacity-[0.12]" style={{ zIndex: 1 }} />
+      <div className="relative z-10 mx-auto max-w-6xl px-5 py-24 sm:px-8">
         {/* headline over a dim running binary matrix */}
         <div className="relative">
           <BinaryMatrix />
