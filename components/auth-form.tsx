@@ -75,7 +75,7 @@ export function AuthForm({
         <h1 className="font-mono text-lg uppercase tracking-[0.3em] text-foreground">
           {isSignup ? "[ INITIALIZE_ACCOUNT ]" : "[ ACCESS_CORE ]"}
         </h1>
-        <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground/60">
+        <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.2em] text-foreground/70">
           {isSignup
             ? "Register a new coaching terminal"
             : "Resume your coaching session"}
@@ -87,7 +87,7 @@ export function AuthForm({
         <div className="flex flex-col gap-1.5">
           <label
             htmlFor="auth-username"
-            className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground/70"
+            className="font-mono text-[10px] uppercase tracking-[0.2em] text-foreground/80"
           >
             callsign
           </label>
@@ -98,49 +98,49 @@ export function AuthForm({
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             placeholder="your_handle"
-            className="neon-input px-4 py-3 font-mono text-sm placeholder:text-muted-foreground/30"
+            className="neon-input px-4 py-3 font-mono text-sm placeholder:text-foreground/40"
           />
         </div>
       )}
 
       {/* Email */}
       <div className="flex flex-col gap-1.5">
-        <label
-          htmlFor="auth-email"
-          className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground/70"
-        >
-          terminal_id
-        </label>
-        <input
-          id="auth-email"
-          type="email"
-          autoComplete="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="you@domain.com"
-          className="neon-input px-4 py-3 font-mono text-sm placeholder:text-muted-foreground/30"
-        />
+          <label
+            htmlFor="auth-email"
+            className="font-mono text-[10px] uppercase tracking-[0.2em] text-foreground/80"
+          >
+            terminal_id
+          </label>
+          <input
+            id="auth-email"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@domain.com"
+            className="neon-input px-4 py-3 font-mono text-sm placeholder:text-foreground/40"
+          />
       </div>
 
       {/* Password */}
       <div className="flex flex-col gap-1.5">
-        <label
-          htmlFor="auth-password"
-          className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground/70"
-        >
-          access_key
-        </label>
-        <input
-          id="auth-password"
-          type="password"
-          autoComplete={isSignup ? "new-password" : "current-password"}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          onFocus={onPasswordFocus}
-          onBlur={onPasswordBlur}
-          placeholder="••••••••••••"
-          className="neon-input px-4 py-3 font-mono text-sm placeholder:text-muted-foreground/30"
-        />
+          <label
+            htmlFor="auth-password"
+            className="font-mono text-[10px] uppercase tracking-[0.2em] text-foreground/80"
+          >
+            access_key
+          </label>
+          <input
+            id="auth-password"
+            type="password"
+            autoComplete={isSignup ? "new-password" : "current-password"}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onFocus={onPasswordFocus}
+            onBlur={onPasswordBlur}
+            placeholder="••••••••••••"
+            className="neon-input px-4 py-3 font-mono text-sm placeholder:text-foreground/40"
+          />
 
         {/* Password strength bar (signup only) */}
         {isSignup && password.length > 0 && (
@@ -183,7 +183,7 @@ export function AuthForm({
         <div className="flex flex-col gap-1.5">
           <label
             htmlFor="auth-confirm"
-            className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground/70"
+            className="font-mono text-[10px] uppercase tracking-[0.2em] text-foreground/80"
           >
             confirm_key
           </label>
@@ -196,7 +196,7 @@ export function AuthForm({
             onFocus={onPasswordFocus}
             onBlur={onPasswordBlur}
             placeholder="••••••••••••"
-            className="neon-input px-4 py-3 font-mono text-sm placeholder:text-muted-foreground/30"
+            className="neon-input px-4 py-3 font-mono text-sm placeholder:text-foreground/40"
           />
         </div>
       )}

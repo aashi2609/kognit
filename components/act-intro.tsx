@@ -183,11 +183,11 @@ export function ActIntro({ onComplete }: { onComplete: () => void }) {
                     }
                     style={{
                       color: locked
-                        ? "oklch(0.92 0.14 165)"
-                        : "oklch(0.85 0.09 350)",
+                        ? "oklch(0.8 0.24 345)"
+                        : "oklch(0.86 0.2 165)",
                       textShadow: locked
-                        ? "0 0 10px oklch(0.95 0.15 165 / 90%), 0 0 34px oklch(0.86 0.14 165 / 70%)"
-                        : "0 0 18px oklch(0.82 0.08 350 / 55%)",
+                        ? "-0.7px -0.7px 0 rgba(0,0,0,0.85), 0.7px -0.7px 0 rgba(0,0,0,0.85), -0.7px 0.7px 0 rgba(0,0,0,0.85), 0.7px 0.7px 0 rgba(0,0,0,0.85), 0 0 12px oklch(0.85 0.24 345 / 95%), 0 0 34px oklch(0.8 0.24 345 / 75%)"
+                        : "-0.7px -0.7px 0 rgba(0,0,0,0.85), 0.7px -0.7px 0 rgba(0,0,0,0.85), -0.7px 0.7px 0 rgba(0,0,0,0.85), 0.7px 0.7px 0 rgba(0,0,0,0.85), 0 0 12px oklch(0.9 0.2 165 / 95%), 0 0 30px oklch(0.86 0.2 165 / 70%)",
                     }}
                   >
                     {letter}
@@ -198,8 +198,8 @@ export function ActIntro({ onComplete }: { onComplete: () => void }) {
                         animate={{ opacity: [0, 1, 0] }}
                         transition={{ duration: 0.5, delay: i * 0.09 }}
                         style={{
-                          color: "oklch(0.96 0.14 165)",
-                          textShadow: "0 0 34px oklch(0.92 0.15 165)",
+                          color: "oklch(0.9 0.24 345)",
+                          textShadow: "-0.7px -0.7px 0 rgba(0,0,0,0.85), 0.7px -0.7px 0 rgba(0,0,0,0.85), -0.7px 0.7px 0 rgba(0,0,0,0.85), 0.7px 0.7px 0 rgba(0,0,0,0.85), 0 0 40px oklch(0.85 0.24 345)",
                         }}
                         aria-hidden="true"
                       >

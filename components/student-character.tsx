@@ -5,17 +5,8 @@ import { motion } from "motion/react"
 export type Expression = "happy" | "focus" | "panic" | "shock"
 
 /**
- * A fully-realized stylized vector student character with:
- * - Techwear hoodie with geometric fabric folds, zipper teeth, hood detail
- * - Full articulated arms with elbow joints and forearm segments
- * - Distinct 4-finger + thumb silhouette hands (not circles)
- * - Expressive face system (happy, focus, panic, shock)
- *
- * Props:
- * - `expression` — drives eyes, brows, mouth, body language
- * - `juggle` — animates arms in independent elliptical cascade paths
- * - `eyeTarget` — {x,y} normalized coords for pupil/head tracking
- * - `coverEyes` — arms raise to cover eyes ("no peeking" gesture)
+ * A structurally stabilized stylized vector student character.
+ * Prevents arms from detaching by aligning exact skeletal anchors.
  */
 export function StudentCharacter({
   expression = "happy",
@@ -78,7 +69,7 @@ export function StudentCharacter({
           stroke="oklch(0.3 0.06 350)"
           strokeWidth="1.5"
         />
-        {/* Geometric fabric fold lines (techwear detailing) */}
+        {/* Geometric fabric fold lines */}
         <path
           d="M88 180 L80 230"
           fill="none"
@@ -187,193 +178,6 @@ export function StudentCharacter({
         />
       </g>
 
-      {/* ---- LEFT ARM ---- */}
-      <motion.g
-        style={{ originX: "80px", originY: "180px" }}
-        animate={
-          coverEyes
-            ? { rotate: -65, x: 30, y: -60 }
-            : expression === "shock"
-              ? { rotate: -30, x: 15, y: -40 }
-              : juggle
-                ? { rotate: [0, -8, 0, 8, 0] }
-                : {}
-        }
-        transition={
-          coverEyes
-            ? { type: "spring", stiffness: 120, damping: 14 }
-            : expression === "shock"
-              ? { type: "spring", stiffness: 100, damping: 12 }
-              : juggle
-                ? { duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0 }
-                : {}
-        }
-      >
-        {/* Shoulder joint */}
-        <circle cx="78" cy="174" r="10" fill="url(#hoodie)" />
-        {/* Upper arm */}
-        <path
-          d="M78 176 Q62 196 60 210"
-          fill="none"
-          stroke="url(#hoodie)"
-          strokeWidth="16"
-          strokeLinecap="round"
-        />
-        {/* Elbow joint */}
-        <circle cx="60" cy="210" r="7" fill="url(#hoodieDark)" />
-        {/* Forearm */}
-        <path
-          d="M60 210 Q56 222 58 234"
-          fill="none"
-          stroke="url(#hoodieDark)"
-          strokeWidth="14"
-          strokeLinecap="round"
-        />
-        {/* Hand — articulated fingers */}
-        <g>
-          {/* Palm */}
-          <path
-            d="M50 230 Q58 226 66 230 Q68 240 58 244 Q48 240 50 230 Z"
-            fill="url(#skinGrad)"
-          />
-          {/* Thumb */}
-          <path
-            d="M50 232 Q44 230 42 236 Q44 240 48 238"
-            fill="url(#skinGrad)"
-            stroke="oklch(0.7 0.04 60)"
-            strokeWidth="0.8"
-          />
-          {/* Index finger */}
-          <path
-            d="M53 244 Q52 252 54 256"
-            fill="none"
-            stroke="url(#skinGrad)"
-            strokeWidth="4"
-            strokeLinecap="round"
-          />
-          {/* Middle finger */}
-          <path
-            d="M58 244 Q57 254 58 258"
-            fill="none"
-            stroke="url(#skinGrad)"
-            strokeWidth="4"
-            strokeLinecap="round"
-          />
-          {/* Ring finger */}
-          <path
-            d="M63 244 Q63 252 62 255"
-            fill="none"
-            stroke="url(#skinGrad)"
-            strokeWidth="3.5"
-            strokeLinecap="round"
-          />
-          {/* Pinky */}
-          <path
-            d="M67 242 Q68 248 66 251"
-            fill="none"
-            stroke="url(#skinGrad)"
-            strokeWidth="3"
-            strokeLinecap="round"
-          />
-        </g>
-      </motion.g>
-
-      {/* ---- RIGHT ARM ---- */}
-      <motion.g
-        style={{ originX: "160px", originY: "180px" }}
-        animate={
-          coverEyes
-            ? { rotate: 65, x: -30, y: -60 }
-            : expression === "shock"
-              ? { rotate: 30, x: -15, y: -40 }
-              : juggle
-                ? { rotate: [0, 8, 0, -8, 0] }
-                : {}
-        }
-        transition={
-          coverEyes
-            ? { type: "spring", stiffness: 120, damping: 14 }
-            : expression === "shock"
-              ? { type: "spring", stiffness: 100, damping: 12 }
-              : juggle
-                ? {
-                    duration: 1.2,
-                    repeat: Infinity,
-                    ease: "easeInOut",
-                    delay: 0.6,
-                  }
-                : {}
-        }
-      >
-        {/* Shoulder joint */}
-        <circle cx="162" cy="174" r="10" fill="url(#hoodie)" />
-        {/* Upper arm */}
-        <path
-          d="M162 176 Q178 196 180 210"
-          fill="none"
-          stroke="url(#hoodie)"
-          strokeWidth="16"
-          strokeLinecap="round"
-        />
-        {/* Elbow joint */}
-        <circle cx="180" cy="210" r="7" fill="url(#hoodieDark)" />
-        {/* Forearm */}
-        <path
-          d="M180 210 Q184 222 182 234"
-          fill="none"
-          stroke="url(#hoodieDark)"
-          strokeWidth="14"
-          strokeLinecap="round"
-        />
-        {/* Hand — articulated fingers */}
-        <g>
-          {/* Palm */}
-          <path
-            d="M174 230 Q182 226 190 230 Q192 240 182 244 Q172 240 174 230 Z"
-            fill="url(#skinGrad)"
-          />
-          {/* Thumb */}
-          <path
-            d="M190 232 Q196 230 198 236 Q196 240 192 238"
-            fill="url(#skinGrad)"
-            stroke="oklch(0.7 0.04 60)"
-            strokeWidth="0.8"
-          />
-          {/* Index */}
-          <path
-            d="M177 244 Q176 252 178 256"
-            fill="none"
-            stroke="url(#skinGrad)"
-            strokeWidth="4"
-            strokeLinecap="round"
-          />
-          {/* Middle */}
-          <path
-            d="M182 244 Q181 254 182 258"
-            fill="none"
-            stroke="url(#skinGrad)"
-            strokeWidth="4"
-            strokeLinecap="round"
-          />
-          {/* Ring */}
-          <path
-            d="M187 244 Q187 252 186 255"
-            fill="none"
-            stroke="url(#skinGrad)"
-            strokeWidth="3.5"
-            strokeLinecap="round"
-          />
-          {/* Pinky */}
-          <path
-            d="M191 242 Q192 248 190 251"
-            fill="none"
-            stroke="url(#skinGrad)"
-            strokeWidth="3"
-            strokeLinecap="round"
-          />
-        </g>
-      </motion.g>
-
       {/* ---- HEAD ---- */}
       <motion.g
         animate={
@@ -388,7 +192,7 @@ export function StudentCharacter({
             ? { type: "spring", stiffness: 80, damping: 20 }
             : { duration: 0.3, repeat: Infinity }
         }
-        style={{ originX: "120px", originY: "120px" }}
+        style={{ transformOrigin: "120px 120px" }}
       >
         {/* Neck */}
         <rect
@@ -562,12 +366,145 @@ export function StudentCharacter({
           </>
         )}
       </motion.g>
+
+      {/* ---- LEFT ARM ---- */}
+      <motion.g
+        style={{ originX: "78px", originY: "174px", transformOrigin: "78px 174px", transformBox: "view-box" }}
+        animate={
+          coverEyes
+            ? { rotate: -155 }
+            : expression === "shock"
+              ? { rotate: -35 }
+              : juggle
+                ? { rotate: [0, -20, 0, 20, 0] }
+                : { rotate: 0 }
+        }
+        transition={
+          coverEyes || expression === "shock"
+            ? { type: "spring", stiffness: 220, damping: 14 }
+            : juggle
+              ? { duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0 }
+              : { type: "spring", stiffness: 100, damping: 15 }
+        }
+      >
+        <circle cx="78" cy="174" r="10" fill="url(#hoodie)" />
+        <path
+          d="M78 174 Q62 196 60 210"
+          fill="none"
+          stroke="url(#hoodie)"
+          strokeWidth="16"
+          strokeLinecap="round"
+        />
+        <circle cx="60" cy="210" r="7" fill="url(#hoodieDark)" />
+        <motion.g
+          style={{ originX: "60px", originY: "210px", transformOrigin: "60px 210px", transformBox: "view-box" }}
+          animate={
+            coverEyes
+              ? { rotate: -85 }
+              : expression === "shock"
+                ? { rotate: -20 }
+                : juggle
+                  ? { rotate: [0, -10, 0, 10, 0] }
+                  : { rotate: 0 }
+          }
+          transition={
+            coverEyes || expression === "shock"
+              ? { type: "spring", stiffness: 220, damping: 14 }
+              : juggle
+                ? { duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0 }
+                : { type: "spring", stiffness: 100, damping: 15 }
+          }
+        >
+          <path
+            d="M60 210 Q56 222 58 234"
+            fill="none"
+            stroke="url(#hoodieDark)"
+            strokeWidth="14"
+            strokeLinecap="round"
+          />
+          <g>
+            <path d="M50 230 Q58 226 66 230 Q68 240 58 244 Q48 240 50 230 Z" fill="url(#skinGrad)" />
+            <path d="M50 232 Q44 230 42 236 Q44 240 48 238" fill="url(#skinGrad)" stroke="oklch(0.7 0.04 60)" strokeWidth="0.8" />
+            <path d="M53 244 Q52 252 54 256" fill="none" stroke="url(#skinGrad)" strokeWidth="4" />
+            <path d="M58 244 Q57 254 58 258" fill="none" stroke="url(#skinGrad)" strokeWidth="4" />
+            <path d="M63 244 Q63 252 62 255" fill="none" stroke="url(#skinGrad)" strokeWidth="3.5" />
+            <path d="M67 242 Q68 248 66 251" fill="none" stroke="url(#skinGrad)" strokeWidth="3" />
+          </g>
+        </motion.g>
+      </motion.g>
+
+      {/* ---- RIGHT ARM ---- */}
+      <motion.g
+        style={{ originX: "162px", originY: "174px", transformOrigin: "162px 174px", transformBox: "view-box" }}
+        animate={
+          coverEyes
+            ? { rotate: 155 }
+            : expression === "shock"
+              ? { rotate: 35 }
+              : juggle
+                ? { rotate: [0, 20, 0, -20, 0] }
+                : { rotate: 0 }
+        }
+        transition={
+          coverEyes || expression === "shock"
+            ? { type: "spring", stiffness: 220, damping: 14 }
+            : juggle
+              ? { duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0.6 }
+              : { type: "spring", stiffness: 100, damping: 15 }
+        }
+      >
+        <circle cx="162" cy="174" r="10" fill="url(#hoodie)" />
+        <path
+          d="M162 174 Q178 196 180 210"
+          fill="none"
+          stroke="url(#hoodie)"
+          strokeWidth="16"
+          strokeLinecap="round"
+        />
+        <circle cx="180" cy="210" r="7" fill="url(#hoodieDark)" />
+        <motion.g
+          style={{ originX: "180px", originY: "210px", transformOrigin: "180px 210px", transformBox: "view-box" }}
+          animate={
+            coverEyes
+              ? { rotate: 85 }
+              : expression === "shock"
+                ? { rotate: 20 }
+                : juggle
+                  ? { rotate: [0, 10, 0, -10, 0] }
+                  : { rotate: 0 }
+          }
+          transition={
+            coverEyes || expression === "shock"
+              ? { type: "spring", stiffness: 220, damping: 14 }
+              : juggle
+                ? { duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0.6 }
+                : { type: "spring", stiffness: 100, damping: 15 }
+          }
+        >
+          <path
+            d="M180 210 Q184 222 182 234"
+            fill="none"
+            stroke="url(#hoodieDark)"
+            strokeWidth="14"
+            strokeLinecap="round"
+          />
+          <g>
+            <path d="M174 230 Q182 226 190 230 Q192 240 182 244 Q172 240 174 230 Z" fill="url(#skinGrad)" />
+            <path d="M190 232 Q196 230 198 236 Q196 240 192 238" fill="url(#skinGrad)" stroke="oklch(0.7 0.04 60)" strokeWidth="0.8" />
+            <path d="M177 244 Q176 252 178 256" fill="none" stroke="url(#skinGrad)" strokeWidth="4" />
+            <path d="M182 244 Q181 254 182 258" fill="none" stroke="url(#skinGrad)" strokeWidth="4" />
+            <path d="M187 244 Q187 252 186 255" fill="none" stroke="url(#skinGrad)" strokeWidth="3.5" />
+            <path d="M191 242 Q192 248 190 251" fill="none" stroke="url(#skinGrad)" strokeWidth="3" />
+          </g>
+        </motion.g>
+      </motion.g>
+
     </svg>
   )
 }
 
 /* ------------------------------------------------------------------ */
-/*  Sub-components                                                      */
+/*  Sub-components                                                    */
 /* ------------------------------------------------------------------ */
 
 function Eyes({
@@ -581,7 +518,6 @@ function Eyes({
   pupilDy?: number
   coverEyes?: boolean
 }) {
-  // When covering eyes, render squinting slits
   if (coverEyes) {
     return (
       <g>
@@ -606,10 +542,8 @@ function Eyes({
   if (expression === "panic") {
     return (
       <g>
-        {/* Wide-open panic eyes */}
         <circle cx="104" cy="116" r="12" fill="white" />
         <circle cx="136" cy="116" r="12" fill="white" />
-        {/* Dilated pupils darting around */}
         <motion.circle
           cx={104}
           cy={117}
@@ -626,7 +560,6 @@ function Eyes({
           animate={{ x: [3, -3, 2, -4, 3], y: [2, -2, 1, -1, 2] }}
           transition={{ duration: 0.4, repeat: Infinity }}
         />
-        {/* Tiny highlight */}
         <circle cx="106" cy="114" r="1.5" fill="white" opacity="0.8" />
         <circle cx="138" cy="114" r="1.5" fill="white" opacity="0.8" />
       </g>
@@ -636,27 +569,24 @@ function Eyes({
   if (expression === "shock") {
     return (
       <g>
-        {/* Even wider shock eyes */}
         <circle cx="104" cy="116" r="13" fill="white" />
         <circle cx="136" cy="116" r="13" fill="white" />
-        {/* Very dilated pupils */}
         <motion.circle
           cx={104}
           cy={117}
-          r="6"
           fill="oklch(0.15 0.02 60)"
+          initial={{ r: 6 }}
           animate={{ r: [6, 7, 6], x: [-1, 1, -1] }}
           transition={{ duration: 0.8, repeat: Infinity }}
         />
         <motion.circle
           cx={136}
           cy={117}
-          r="6"
           fill="oklch(0.15 0.02 60)"
+          initial={{ r: 6 }}
           animate={{ r: [6, 7, 6], x: [1, -1, 1] }}
           transition={{ duration: 0.8, repeat: Infinity }}
         />
-        {/* Iris ring */}
         <circle
           cx="104"
           cy="117"
@@ -681,7 +611,6 @@ function Eyes({
     )
   }
 
-  // Happy or focus — supports eyeTarget tracking
   const r = expression === "focus" ? 5.5 : 6.5
   return (
     <g>
@@ -729,8 +658,8 @@ function Mouth({ expression }: { expression: Expression }) {
         cx="120"
         cy="140"
         rx="9"
-        ry="11"
         fill="oklch(0.35 0.06 20)"
+        initial={{ ry: 11 }}
         animate={{ ry: [11, 8, 11] }}
         transition={{ duration: 0.5, repeat: Infinity }}
       />
@@ -740,10 +669,9 @@ function Mouth({ expression }: { expression: Expression }) {
     return (
       <motion.ellipse
         cx="120"
-        cy="142"
         rx="7"
-        ry="9"
         fill="oklch(0.35 0.06 20)"
+        initial={{ ry: 9, cy: 142 }}
         animate={{ ry: [9, 12, 9], cy: [142, 140, 142] }}
         transition={{ duration: 0.7, repeat: Infinity }}
       />
