@@ -1,7 +1,7 @@
 "use client"
 
 import { motion } from "motion/react"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { PanelFrame } from "@/components/panel-frame"
 
 const CODE = `function twoSum(nums, target) {
@@ -23,6 +23,13 @@ const CODE = `function twoSum(nums, target) {
 export function ActCloneConsole({ onComplete }: { onComplete: () => void }) {
   const [typed, setTyped] = useState(0)
   const [warn, setWarn] = useState(false)
+  const skippedRef = useRef(false)
+
+  const skip = useCallback(() => {
+    if (skippedRef.current) return
+    skippedRef.current = true
+    onComplete()
+  }, [onComplete])
 
   useEffect(() => {
     let i = 0
@@ -36,12 +43,27 @@ export function ActCloneConsole({ onComplete }: { onComplete: () => void }) {
 
   useEffect(() => {
     const t1 = window.setTimeout(() => setWarn(true), 1500)
-    const t2 = window.setTimeout(onComplete, 4200)
+    const t2 = window.setTimeout(skip, 4200)
     return () => {
       clearTimeout(t1)
       clearTimeout(t2)
     }
-  }, [onComplete])
+  }, [skip])
+
+  // Skip on any click or key press
+  useEffect(() => {
+    const onClick = () => skip()
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault()
+      skip()
+    }
+    window.addEventListener("click", onClick)
+    window.addEventListener("keydown", onKey)
+    return () => {
+      window.removeEventListener("click", onClick)
+      window.removeEventListener("keydown", onKey)
+    }
+  }, [skip])
 
   const lines = CODE.slice(0, typed).split("\n")
   const done = typed >= CODE.length

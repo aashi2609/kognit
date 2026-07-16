@@ -1,7 +1,7 @@
 "use client"
 
 import { motion, AnimatePresence } from "motion/react"
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { PanelFrame } from "@/components/panel-frame"
 import { SectionTag } from "@/components/act-clone-console"
 import { SoundRibbon } from "@/components/sound-ribbon"
@@ -49,6 +49,38 @@ export function ActSynapse({
   const [fixMode, setFixMode] = useState<FixMode>("idle")
   const [check, setCheck] = useState(false)
   const notified = useRef(false)
+  const skippedRef = useRef(false)
+
+  const skip = useCallback(() => {
+    if (skippedRef.current) return
+    skippedRef.current = true
+    // Fast-forward to completed state
+    setVisLines(CODE.length)
+    setProbeText(PROBE)
+    setFixText(FIXED_LINE)
+    setFixMode("type")
+    setStep("done")
+    setCheck(true)
+    if (!notified.current) {
+      notified.current = true
+      onResolved?.()
+    }
+  }, [onResolved])
+
+  // Skip on any click or key press
+  useEffect(() => {
+    const onClick = () => skip()
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault()
+      skip()
+    }
+    window.addEventListener("click", onClick)
+    window.addEventListener("keydown", onKey)
+    return () => {
+      window.removeEventListener("click", onClick)
+      window.removeEventListener("keydown", onKey)
+    }
+  }, [skip])
 
   // Step 1 — type the program line by line, revealing the flawed line
   useEffect(() => {

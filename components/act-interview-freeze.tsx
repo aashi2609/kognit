@@ -1,7 +1,7 @@
 "use client"
 
 import { motion } from "motion/react"
-import { useEffect } from "react"
+import { useCallback, useEffect, useRef } from "react"
 import { PanelFrame } from "@/components/panel-frame"
 import { SectionTag } from "@/components/act-clone-console"
 import { StudentCharacter } from "@/components/student-character"
@@ -29,10 +29,33 @@ const CRISIS_QUESTIONS = [
  * "shock" expression with hands-on-head, dilated pupils, body trembling.
  */
 export function ActInterviewFreeze({ onComplete }: { onComplete: () => void }) {
-  useEffect(() => {
-    const t = window.setTimeout(onComplete, 6500)
-    return () => clearTimeout(t)
+  const skippedRef = useRef(false)
+
+  const skip = useCallback(() => {
+    if (skippedRef.current) return
+    skippedRef.current = true
+    onComplete()
   }, [onComplete])
+
+  useEffect(() => {
+    const t = window.setTimeout(skip, 6500)
+    return () => clearTimeout(t)
+  }, [skip])
+
+  // Skip on any click or key press
+  useEffect(() => {
+    const onClick = () => skip()
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault()
+      skip()
+    }
+    window.addEventListener("click", onClick)
+    window.addEventListener("keydown", onKey)
+    return () => {
+      window.removeEventListener("click", onClick)
+      window.removeEventListener("keydown", onKey)
+    }
+  }, [skip])
 
   return (
     <div className="w-full max-w-5xl">
