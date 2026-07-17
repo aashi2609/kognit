@@ -89,11 +89,11 @@ export function OfficeScene({ lit = false }: { lit?: boolean }) {
       <motion.div
         className="absolute inset-0"
         initial={false}
-        animate={{ opacity: lit ? 0.08 : 0.6 }}
+        animate={{ opacity: lit ? 0.08 : 0.94 }}
         transition={{ duration: 0.7, ease: "easeInOut" }}
         style={{
           background:
-            "radial-gradient(72% 62% at 50% 42%, oklch(0.02 0 0 / 52%), oklch(0.01 0 0 / 93%) 100%)",
+            "radial-gradient(75% 65% at 50% 40%, oklch(0.01 0 0 / 80%), oklch(0.005 0 0 / 99%) 100%)",
         }}
       />
 

@@ -107,20 +107,22 @@ export function HangingLamp({
           <span className="-mt-[1px] h-2 w-2 rounded-full bg-[oklch(0.62_0.02_265)]" />
           {/* metallic bead handle */}
           <span
-            className="mt-[1px] h-5 w-5 rounded-full"
+            className="mt-[1px] h-5 w-5 rounded-full transition-shadow duration-500"
             style={{
               background:
                 "radial-gradient(circle at 32% 28%, oklch(0.95 0.02 265), oklch(0.6 0.02 265) 55%, oklch(0.35 0.02 265) 100%)",
-              boxShadow:
-                "0 3px 8px oklch(0 0 0 / 55%), inset 0 -2px 3px oklch(0 0 0 / 40%)",
+              boxShadow: !on
+                ? "0 0 12px oklch(0.9 0.1 90 / 60%), 0 3px 8px oklch(0 0 0 / 55%), inset 0 -2px 3px oklch(0 0 0 / 40%)"
+                : "0 3px 8px oklch(0 0 0 / 55%), inset 0 -2px 3px oklch(0 0 0 / 40%)",
             }}
           />
         </motion.button>
 
         {/* prompt */}
         <motion.p
-          className="pointer-events-none mt-4 whitespace-nowrap font-mono text-[11px] uppercase tracking-[0.42em] text-foreground/80"
-          animate={{ opacity: on ? 0 : [0.4, 1, 0.4], y: on ? -4 : 0 }}
+          className="pointer-events-none mt-4 whitespace-nowrap font-mono text-[11px] uppercase tracking-[0.42em] text-amber-200/90"
+          style={{ textShadow: "0 0 8px rgba(251, 191, 36, 0.4)" }}
+          animate={{ opacity: on ? 0 : [0.5, 1, 0.5], y: on ? -4 : 0 }}
           transition={on ? { duration: 0.3 } : { duration: 2, repeat: Infinity }}
         >
           pull to enlighten

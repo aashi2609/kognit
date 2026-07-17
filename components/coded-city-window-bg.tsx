@@ -71,11 +71,13 @@ export function CodedCityWindowBg({
         }
       `}</style>
 
-      {/* 1. SKY GRADIENT (Daytime office window vibe) */}
+      {/* 1. SKY GRADIENT (Daytime office window vibe when lit, deep night when unlit) */}
       <div
         className="absolute inset-0 transition-all duration-1000"
         style={{
-          background: "linear-gradient(to bottom, #3b82f6 0%, #60a5fa 35%, #93c5fd 60%, #bae6fd 80%, #f0f9ff 100%)",
+          background: lit
+            ? "linear-gradient(to bottom, #3b82f6 0%, #60a5fa 35%, #93c5fd 60%, #bae6fd 80%, #f0f9ff 100%)"
+            : "linear-gradient(to bottom, #030712 0%, #070e1b 35%, #0f172a 60%, #0b1120 80%, #020617 100%)",
         }}
       />
 
@@ -323,8 +325,9 @@ export function CodedCityWindowBg({
 
       {/* 6. DIAGONAL SUNLIGHT RAYS & SHIMMER */}
       <div
-        className="absolute inset-0 pointer-events-none mix-blend-screen opacity-35 transition-all duration-1000"
+        className="absolute inset-0 pointer-events-none mix-blend-screen transition-all duration-1000"
         style={{
+          opacity: lit ? 0.35 : 0,
           background: "linear-gradient(135deg, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0.12) 42%, transparent 75%)",
           clipPath: "polygon(0 0, 100% 0, 100% 100%, 0 52%)",
         }}
@@ -332,6 +335,7 @@ export function CodedCityWindowBg({
       <div
         className="absolute inset-0 pointer-events-none mix-blend-screen transition-all duration-1000"
         style={{
+          opacity: lit ? 1 : 0,
           background: "repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0px, rgba(255, 255, 255, 0.16) 50px, transparent 50px, transparent 100px)",
           filter: "blur(24px)",
           animation: "sun-shimmer 8s infinite ease-in-out",
