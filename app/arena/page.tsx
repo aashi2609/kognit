@@ -240,7 +240,8 @@ export default function ArenaPage() {
         >
           KOGNIT
         </Link>
-        <div className="flex items-center gap-6">
+
+        <div className="flex items-center gap-2 rounded-full border border-white/15 bg-slate-950/80 p-1.5 backdrop-blur-md shadow-md">
           {[
             { href: "/dashboard", label: "Terminal" },
             { href: "/skills", label: "Skills" },
@@ -249,13 +250,20 @@ export default function ArenaPage() {
             <Link
               key={link.href}
               href={link.href}
-              className={`font-mono text-[11px] uppercase tracking-[0.2em] transition-colors ${
+              className={`flex items-center gap-2 rounded-full px-4 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.2em] transition-all duration-300 ${
                 link.active
-                  ? "text-accent"
-                  : "text-muted-foreground/50 hover:text-muted-foreground"
+                  ? "border border-emerald-400/70 bg-emerald-500/25 text-white shadow-[0_0_16px_rgba(52,211,153,0.4)]"
+                  : "border border-transparent text-slate-200 hover:border-white/20 hover:bg-white/10 hover:text-white"
               }`}
             >
-              {link.label}
+              <span
+                className={`h-2 w-2 rounded-full transition-all ${
+                  link.active
+                    ? "bg-emerald-400 shadow-[0_0_8px_#34d399]"
+                    : "bg-slate-400/50"
+                }`}
+              />
+              <span>{link.label}</span>
             </Link>
           ))}
         </div>
