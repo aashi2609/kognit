@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
 import { MouseParallaxProvider } from '@/components/mouse-parallax-provider'
 import { CyberClassroomBg } from '@/components/cyber-classroom-bg'
+import { DashboardBgProvider } from '@/components/dashboard-bg-provider'
 
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
 const geistMono = Geist_Mono({
@@ -52,14 +53,16 @@ export default function RootLayout({
       className={`dark ${geistSans.variable} ${geistMono.variable}`}
     >
       <body className="font-sans antialiased text-foreground">
-        <MouseParallaxProvider>
-          {/* Persistent cyber-classroom environment — stays continuous across all route transitions */}
-          <CyberClassroomBg />
-          {/* Page content renders above the background */}
-          <div className="relative z-10">
-            {children}
-          </div>
-        </MouseParallaxProvider>
+        <DashboardBgProvider>
+          <MouseParallaxProvider>
+            {/* Persistent background layer */}
+            <CyberClassroomBg />
+            {/* Page content renders above the background */}
+            <div className="relative z-10">
+              {children}
+            </div>
+          </MouseParallaxProvider>
+        </DashboardBgProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

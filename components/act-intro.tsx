@@ -1,6 +1,7 @@
 "use client"
 
 import { AnimatePresence, motion } from "motion/react"
+import Link from "next/link"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { OfficeScene } from "@/components/office-scene"
 import { HangingLamp } from "@/components/hanging-lamp"
@@ -91,7 +92,7 @@ export function ActIntro({ onComplete }: { onComplete: () => void }) {
         {on && (
           <motion.div
             key="cone"
-            className="pointer-events-none absolute left-1/2 top-[76px] z-10 -translate-x-1/2"
+            className="pointer-events-none absolute left-1/2 top-[124px] z-10 -translate-x-1/2"
             initial={{ opacity: 0, scaleY: 0.3 }}
             animate={{ opacity: 1, scaleY: 1 }}
             transition={{ duration: 0.5, ease: "easeOut" }}

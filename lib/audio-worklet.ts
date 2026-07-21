@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Kognit — Audio Worklet Processor
  *

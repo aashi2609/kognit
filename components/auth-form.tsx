@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from "motion/react"
 import Link from "next/link"
 import { useCallback, useMemo, useState } from "react"
 
+import { useRouter } from "next/navigation"
+
 type Variant = "login" | "signup"
 
 /**
@@ -11,10 +13,11 @@ type Variant = "login" | "signup"
  *
  * Features:
  * - Variant-driven field rendering (login = email + password, signup = all)
- * - Neon-morph input focus animations (transparent → glowing emerald border)
+ * - High-contrast text, clear labels, and dark field inputs for optimal user visibility
  * - 3-tier password complexity bar with pulsing green fills
  * - Monospaced HUD-style headers and labels
  * - Callbacks for password field focus/blur to control character eye-covering
+ * - Automatic router redirection to /dashboard upon submission
  */
 export function AuthForm({
   variant,
@@ -25,6 +28,7 @@ export function AuthForm({
   onPasswordFocus: () => void
   onPasswordBlur: () => void
 }) {
+  const router = useRouter()
   const [password, setPassword] = useState("")
   const [email, setEmail] = useState("")
   const [username, setUsername] = useState("")
@@ -59,23 +63,22 @@ export function AuthForm({
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault()
-      // Form submission placeholder — connect to your auth backend
       console.log(
-        `[${variant.toUpperCase()}]`,
-        isSignup ? { username, email, password } : { email, password },
+        `[AUTH:${variant.toUpperCase()}] user=${isSignup ? username : email}`,
       )
+      router.push("/dashboard")
     },
-    [variant, isSignup, username, email, password],
+    [variant, isSignup, username, email, router],
   )
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5">
       {/* Header */}
       <div className="mb-2">
-        <h1 className="font-mono text-lg uppercase tracking-[0.3em] text-foreground">
+        <h1 className="font-mono text-xl font-bold uppercase tracking-[0.25em] text-white drop-shadow-md">
           {isSignup ? "[ INITIALIZE_ACCOUNT ]" : "[ ACCESS_CORE ]"}
         </h1>
-        <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.2em] text-foreground/70">
+        <p className="mt-2 font-mono text-[11.5px] font-medium uppercase tracking-[0.2em] text-slate-200">
           {isSignup
             ? "Register a new coaching terminal"
             : "Resume your coaching session"}
@@ -87,7 +90,7 @@ export function AuthForm({
         <div className="flex flex-col gap-1.5">
           <label
             htmlFor="auth-username"
-            className="font-mono text-[10px] uppercase tracking-[0.2em] text-foreground/80"
+            className="font-mono text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-100"
           >
             callsign
           </label>
@@ -98,49 +101,49 @@ export function AuthForm({
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             placeholder="your_handle"
-            className="neon-input px-4 py-3 font-mono text-sm placeholder:text-foreground/40"
+            className="neon-input px-4 py-3 font-mono text-sm text-white placeholder:text-slate-400 bg-slate-900/90 border-slate-700/80 focus:border-emerald-400 focus:bg-slate-950"
           />
         </div>
       )}
 
       {/* Email */}
       <div className="flex flex-col gap-1.5">
-          <label
-            htmlFor="auth-email"
-            className="font-mono text-[10px] uppercase tracking-[0.2em] text-foreground/80"
-          >
-            terminal_id
-          </label>
-          <input
-            id="auth-email"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@domain.com"
-            className="neon-input px-4 py-3 font-mono text-sm placeholder:text-foreground/40"
-          />
+        <label
+          htmlFor="auth-email"
+          className="font-mono text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-100"
+        >
+          terminal_id
+        </label>
+        <input
+          id="auth-email"
+          type="email"
+          autoComplete="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@domain.com"
+          className="neon-input px-4 py-3 font-mono text-sm text-white placeholder:text-slate-400 bg-slate-900/90 border-slate-700/80 focus:border-emerald-400 focus:bg-slate-950"
+        />
       </div>
 
       {/* Password */}
       <div className="flex flex-col gap-1.5">
-          <label
-            htmlFor="auth-password"
-            className="font-mono text-[10px] uppercase tracking-[0.2em] text-foreground/80"
-          >
-            access_key
-          </label>
-          <input
-            id="auth-password"
-            type="password"
-            autoComplete={isSignup ? "new-password" : "current-password"}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onFocus={onPasswordFocus}
-            onBlur={onPasswordBlur}
-            placeholder="••••••••••••"
-            className="neon-input px-4 py-3 font-mono text-sm placeholder:text-foreground/40"
-          />
+        <label
+          htmlFor="auth-password"
+          className="font-mono text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-100"
+        >
+          access_key
+        </label>
+        <input
+          id="auth-password"
+          type="password"
+          autoComplete={isSignup ? "new-password" : "current-password"}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          onFocus={onPasswordFocus}
+          onBlur={onPasswordBlur}
+          placeholder="••••••••••••"
+          className="neon-input px-4 py-3 font-mono text-sm text-white placeholder:text-slate-400 bg-slate-900/90 border-slate-700/80 focus:border-emerald-400 focus:bg-slate-950"
+        />
 
         {/* Password strength bar (signup only) */}
         {isSignup && password.length > 0 && (
@@ -183,7 +186,7 @@ export function AuthForm({
         <div className="flex flex-col gap-1.5">
           <label
             htmlFor="auth-confirm"
-            className="font-mono text-[10px] uppercase tracking-[0.2em] text-foreground/80"
+            className="font-mono text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-100"
           >
             confirm_key
           </label>
@@ -196,7 +199,7 @@ export function AuthForm({
             onFocus={onPasswordFocus}
             onBlur={onPasswordBlur}
             placeholder="••••••••••••"
-            className="neon-input px-4 py-3 font-mono text-sm placeholder:text-foreground/40"
+            className="neon-input px-4 py-3 font-mono text-sm text-white placeholder:text-slate-400 bg-slate-900/90 border-slate-700/80 focus:border-emerald-400 focus:bg-slate-950"
           />
         </div>
       )}
@@ -206,23 +209,23 @@ export function AuthForm({
         type="submit"
         whileHover={{ scale: 1.01 }}
         whileTap={{ scale: 0.98 }}
-        className="group relative mt-2 overflow-hidden rounded-xl border border-primary/40 bg-primary/10 px-8 py-4 font-mono text-sm uppercase tracking-[0.24em] text-primary transition-all duration-300 hover:border-primary hover:bg-primary/20 hover:shadow-[0_0_30px_var(--emerald-glow)]"
+        className="group relative mt-2 overflow-hidden rounded-xl border border-emerald-400/50 bg-emerald-500/20 px-8 py-4 font-mono text-sm font-bold uppercase tracking-[0.24em] text-emerald-300 transition-all duration-300 hover:border-emerald-400 hover:bg-emerald-500/35 hover:text-white hover:shadow-[0_0_30px_var(--emerald-glow)]"
       >
         <span
-          className="pointer-events-none absolute inset-0 rounded-xl border border-primary/0 group-hover:border-primary/60 group-hover:animate-pulse"
+          className="pointer-events-none absolute inset-0 rounded-xl border border-emerald-400/0 group-hover:border-emerald-400/60 group-hover:animate-pulse"
           aria-hidden="true"
         />
         {isSignup ? "[ INITIALIZE ]" : "[ ACCESS ]"}
       </motion.button>
 
       {/* Toggle link */}
-      <p className="mt-2 text-center font-mono text-[11px] text-muted-foreground/60">
+      <p className="mt-2 text-center font-mono text-xs font-medium text-slate-200">
         {isSignup ? (
           <>
             Already initialized?{" "}
             <Link
               href="/login"
-              className="text-primary/80 underline underline-offset-4 transition-colors hover:text-primary"
+              className="text-emerald-300 font-semibold underline underline-offset-4 transition-colors hover:text-white"
             >
               Access Core
             </Link>
@@ -232,7 +235,7 @@ export function AuthForm({
             Don&apos;t have an account?{" "}
             <Link
               href="/signup"
-              className="text-primary/80 underline underline-offset-4 transition-colors hover:text-primary"
+              className="text-emerald-300 font-semibold underline underline-offset-4 transition-colors hover:text-white"
             >
               Initialize one
             </Link>

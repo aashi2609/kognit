@@ -186,4 +186,73 @@
     border-radius: 2px;
     transition: width 0.4s ease, background 0.4s ease;
   }
+
+  /* Liquid Droplet 3D Glass Buttons (hyper-realistic liquid glass effect without arrows) */
+  .liquid-droplet-btn {
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.16) 0%,
+      rgba(255, 255, 255, 0.05) 50%,
+      rgba(255, 255, 255, 0.02) 100%
+    );
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.38);
+    border-radius: 9999px;
+    box-shadow:
+      /* Top rim specular light streak */
+      inset 0 1.8px 1.5px 0 rgba(255, 255, 255, 0.85),
+      /* Top ambient volume fill glow */
+      inset 0 16px 22px -8px rgba(255, 255, 255, 0.32),
+      /* Bottom refractive shadow ring */
+      inset 0 -2px 3px 0 rgba(0, 0, 0, 0.45),
+      /* Soft caustics floor shadow */
+      0 14px 32px -4px rgba(0, 0, 0, 0.65),
+      0 4px 12px 0 rgba(0, 0, 0, 0.35);
+    transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .liquid-droplet-btn::before {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 12px;
+    right: 12px;
+    height: 42%;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.45) 0%,
+      rgba(255, 255, 255, 0.0) 100%
+    );
+    border-radius: 9999px 9999px 0 0;
+    pointer-events: none;
+    opacity: 0.85;
+  }
+
+  .liquid-droplet-btn:hover {
+    background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.24) 0%,
+      rgba(255, 255, 255, 0.09) 50%,
+      rgba(255, 255, 255, 0.04) 100%
+    );
+    border-color: rgba(255, 255, 255, 0.6);
+    box-shadow:
+      inset 0 2px 2.5px 0 rgba(255, 255, 255, 0.95),
+      inset 0 20px 28px -6px rgba(255, 255, 255, 0.42),
+      inset 0 -2px 3px 0 rgba(0, 0, 0, 0.35),
+      0 18px 40px -4px rgba(0, 0, 0, 0.75),
+      0 0 28px rgba(255, 255, 255, 0.3);
+    transform: translateY(-2.5px) scale(1.03);
+  }
+
+  .liquid-droplet-btn:active {
+    transform: translateY(0px) scale(0.98);
+    box-shadow:
+      inset 0 1px 1px 0 rgba(255, 255, 255, 0.6),
+      inset 0 8px 12px -4px rgba(255, 255, 255, 0.2),
+      0 6px 16px -2px rgba(0, 0, 0, 0.5);
+  }
 }

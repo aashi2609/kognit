@@ -6,6 +6,7 @@ import Link from "next/link"
 import Editor, { useMonaco } from "@monaco-editor/react"
 import { GlassPanel } from "@/components/glass-panel"
 import { StudentCharacter, type Expression } from "@/components/student-character"
+import { DashboardThemeBox } from "@/components/dashboard-theme-box"
 
 /* ------------------------------------------------------------------ */
 /*  Mock data — initial files, console log stream, Socratic hints     */
@@ -68,12 +69,12 @@ type CharacterState = 'idle' | 'nod' | 'think' | 'gesture'
 
 function useCharacterReaction() {
   const [state, setState] = useState<CharacterState>('idle')
-  const timeoutRef = useRef<number>(0)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const trigger = useCallback((s: CharacterState) => {
-    clearTimeout(timeoutRef.current)
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
     setState(s)
-    timeoutRef.current = window.setTimeout(() => setState('idle'), 2200)
+    timeoutRef.current = setTimeout(() => setState('idle'), 2200)
   }, [])
 
   const expression: Expression =
@@ -95,7 +96,6 @@ export default function DashboardPage() {
   
   const [consoleLines, setConsoleLines] = useState<typeof CONSOLE_STREAM>([])
   const consoleRef = useRef<HTMLDivElement>(null)
-  const intervalRef = useRef<number>(0)
   const monaco = useMonaco()
 
   // Setup Monaco Custom Theme
@@ -119,12 +119,12 @@ export default function DashboardPage() {
     }
   }, [monaco]);
 
-  // Stream console logs one by one
+  // Stream console logs one by one cleanly without re-triggering interval
   useEffect(() => {
     let idx = 0
-    intervalRef.current = window.setInterval(() => {
+    const interval = setInterval(() => {
       if (idx >= CONSOLE_STREAM.length) {
-        clearInterval(intervalRef.current)
+        clearInterval(interval)
         return
       }
       const entry = CONSOLE_STREAM[idx]
@@ -138,7 +138,7 @@ export default function DashboardPage() {
       idx++
     }, 2800)
 
-    return () => clearInterval(intervalRef.current)
+    return () => clearInterval(interval)
   }, [trigger])
 
   // Auto-scroll console
@@ -171,31 +171,55 @@ export default function DashboardPage() {
   return (
     <main className="relative z-10 min-h-screen px-4 py-6 sm:px-6">
       {/* Top navigation bar */}
-      <nav className="mx-auto mb-6 flex max-w-[1400px] items-center justify-between">
-        <Link
-          href="/"
-          className="font-mono text-sm uppercase tracking-[0.3em] text-primary/80 transition-colors hover:text-primary"
-        >
-          KOGNIT
-        </Link>
-        <div className="flex items-center gap-6">
-          {[
-            { href: '/dashboard', label: 'Terminal', active: true },
-            { href: '/skills', label: 'Skills' },
-            { href: '/arena', label: 'Arena' },
-          ].map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={`font-mono text-[11px] uppercase tracking-[0.2em] transition-colors ${
-                link.active
-                  ? 'text-primary'
-                  : 'text-muted-foreground/50 hover:text-muted-foreground'
-              }`}
-            >
-              {link.label}
-            </Link>
-          ))}
+      <nav className="mx-auto mb-6 flex max-w-[1400px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-8">
+          <Link
+            href="/"
+            className="font-mono text-sm font-bold uppercase tracking-[0.3em] text-primary/90 transition-colors hover:text-primary"
+          >
+            KOGNIT
+          </Link>
+          <div className="flex items-center gap-6">
+            {[
+              { href: '/dashboard', label: 'Terminal', active: true },
+              { href: '/skills', label: 'Skills' },
+              { href: '/arena', label: 'Arena' },
+            ].map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`font-mono text-[11px] uppercase tracking-[0.2em] transition-colors ${
+                  link.active
+                    ? 'text-primary font-semibold'
+                    : 'text-muted-foreground/60 hover:text-muted-foreground'
+                }`}
+              >
+                {link.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        {/* Soft Auth Buttons & Theme Box directly on the dashboard */}
+        <div className="flex items-center gap-3">
+          <Link
+            href="/login"
+            className="liquid-glass-pill flex items-center gap-2 px-4 py-2 font-sans text-xs font-medium tracking-wide text-white outline-none"
+          >
+            <span className="h-2 w-2 rounded-full bg-slate-300/80 transition-all group-hover:bg-emerald-400 group-hover:shadow-[0_0_8px_#34d399]" />
+            <span>Sign In</span>
+          </Link>
+          
+          <Link
+            href="/signup"
+            className="liquid-glass-pill flex items-center gap-2 px-4 py-2 font-sans text-xs font-medium tracking-wide text-white outline-none"
+          >
+            <span className="h-2 w-2 rounded-full bg-emerald-400 transition-transform group-hover:animate-pulse" />
+            <span>Initialize Account</span>
+          </Link>
+
+          {/* Antigravity Setup style Theme Picker Box in Top Right Corner */}
+          <DashboardThemeBox />
         </div>
       </nav>
 
