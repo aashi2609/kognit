@@ -45,7 +45,7 @@ export function GlassPanel({
           </span>
         </div>
       )}
-      <div className="relative">{children}</div>
+      <div className="relative h-full">{children}</div>
     </div>
   )
 }

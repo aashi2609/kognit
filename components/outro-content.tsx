@@ -18,25 +18,25 @@ const PILLARS: {
   body: string
   kind: Kind
 }[] = [
-  {
-    protocol: "[ PROTOCOL // 01_COGNITION ]",
-    title: "Reconstruct, don't copy",
-    body: "Kognit refuses to hand you finished logic. It surfaces the gap in your reasoning and walks you back to first principles.",
-    kind: "brackets",
-  },
-  {
-    protocol: "[ PROTOCOL // 02_RECALL ]",
-    title: "Pressure-tested recall",
-    body: "Every concept is rehearsed the way an interview interrogates it — out loud, under a clock, with a critical probe on the line.",
-    kind: "ring",
-  },
-  {
-    protocol: "[ PROTOCOL // 03_DIALOGUE ]",
-    title: "Socratic by design",
-    body: "A living mentor core asks the next right question instead of writing the next line, so the understanding stays yours.",
-    kind: "wave",
-  },
-]
+    {
+      protocol: "[ PROTOCOL // 01_COGNITION ]",
+      title: "Reconstruct, don't copy",
+      body: "Kognit refuses to hand you finished logic. It surfaces the gap in your reasoning and walks you back to first principles.",
+      kind: "brackets",
+    },
+    {
+      protocol: "[ PROTOCOL // 02_RECALL ]",
+      title: "Pressure-tested recall",
+      body: "Every concept is rehearsed the way an interview interrogates it — out loud, under a clock, with a critical probe on the line.",
+      kind: "ring",
+    },
+    {
+      protocol: "[ PROTOCOL // 03_DIALOGUE ]",
+      title: "Socratic by design",
+      body: "A living mentor core asks the next right question instead of writing the next line, so the understanding stays yours.",
+      kind: "wave",
+    },
+  ]
 
 /**
  * Content revealed in the Main Arena / Differentiator section.
@@ -146,7 +146,7 @@ function CornerPendantLamp() {
       <div className="h-3 w-3 rounded-full bg-white shadow-[0_0_14px_rgba(255,255,255,0.95)] border border-white/80 z-20" />
 
       {/* Upper Hanging Cord */}
-      <div className="w-[1.5px] h-[60px] bg-gradient-to-b from-white via-white/80 to-white/40 z-20" />
+      <div className="w-[1.5px] h-[50px] bg-gradient-to-b from-white via-white/80 to-white/40 z-20" />
 
       {/* Lamp Fixture Shade (Matching user image: rounded trapezoid capsule) */}
       <div className="relative z-20 flex flex-col items-center">
@@ -158,17 +158,16 @@ function CornerPendantLamp() {
         >
           {/* Inner rim glow */}
           <div
-            className={`h-2 w-24 rounded-full transition-all duration-300 ${
-              lit
-                ? "bg-white shadow-[0_0_28px_8px_rgba(255,255,255,0.95)]"
-                : "bg-slate-400/40 shadow-none"
-            }`}
+            className={`h-2 w-24 rounded-full transition-all duration-300 ${lit
+              ? "bg-white shadow-[0_0_28px_8px_rgba(255,255,255,0.95)]"
+              : "bg-slate-400/40 shadow-none"
+              }`}
           />
         </motion.div>
 
-        {/* Cord continuation & Pull bead (extended longer while stopping cleanly above cards) */}
+        {/* Cord continuation & Pull bead (shortened to hang cleanly above cards) */}
         <div className="relative flex flex-col items-center z-20">
-          <div className="w-[1.5px] h-[165px] bg-gradient-to-b from-white/70 via-white/40 to-white/20" />
+          <div className="w-[1.5px] h-[115px] bg-gradient-to-b from-white/70 via-white/40 to-white/20" />
           <motion.button
             type="button"
             onClick={() => setLit(!lit)}
