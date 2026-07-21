@@ -10,11 +10,12 @@ import { useDashboardBg } from "@/components/dashboard-bg-provider"
  */
 export function CyberClassroomBg() {
   const pathname = usePathname()
-  const isDashboard = pathname === "/dashboard"
+  const isDashboardThemePage =
+    pathname === "/dashboard" || pathname === "/skills" || pathname === "/arena"
   const isAuth = pathname === "/login" || pathname === "/signup"
   const { bgType, customColor } = useDashboardBg()
 
-  if (isDashboard) {
+  if (isDashboardThemePage) {
     if (bgType === "solid-black") {
       return (
         <div
