@@ -15,3 +15,9 @@ __v0_jsx-dev-runtime.ts
 node_modules
 .next/
 .DS_Store
+
+# Python backend
+__pycache__/
+*.pyc
+backend/.venv/
+backend/*.egg-info/
