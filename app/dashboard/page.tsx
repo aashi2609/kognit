@@ -36,6 +36,7 @@ interface LogEntry {
 /* ------------------------------------------------------------------ */
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+const WS_BASE = API_BASE.replace(/^http/, 'ws')
 
 const RUNNABLE_LANGUAGES = new Set([
   "javascript", "javascript (react)",
@@ -272,11 +273,251 @@ function useCharacterReaction() {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Kognit AI Tutor Hook — WebSocket + VAD + Audio                     */
+/* ------------------------------------------------------------------ */
+
+type AiState = 'idle' | 'listening' | 'thinking' | 'speaking'
+
+function useKognitTutor() {
+  const [aiState, setAiState] = useState<AiState>('idle')
+  const [aiText, setAiText] = useState('')
+  const [userTranscript, setUserTranscript] = useState('')
+  const [isMicActive, setIsMicActive] = useState(false)
+
+  const wsRef = useRef<WebSocket | null>(null)
+  const sessionIdRef = useRef<string>('')
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const mediaStreamRef = useRef<MediaStream | null>(null)
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const audioQueueRef = useRef<HTMLAudioElement[]>([])
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const vadFrameRef = useRef<number>(0)
+
+  // Generate a stable session ID
+  useEffect(() => {
+    sessionIdRef.current = `session_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
+  }, [])
+
+  // Connect WebSocket
+  const connectWs = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) return
+
+    const ws = new WebSocket(`${WS_BASE}/ws/${sessionIdRef.current}`)
+    wsRef.current = ws
+
+    ws.onopen = () => {
+      console.log('[KOGNIT] WS connected')
+    }
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+
+        if (data.type === 'ai_state') {
+          setAiState(data.state as AiState)
+        }
+
+        if (data.type === 'ai_response') {
+          setAiText(data.text)
+        }
+
+        if (data.type === 'user_transcript') {
+          setUserTranscript(data.text)
+        }
+
+        if (data.type === 'audio_out' && data.audio) {
+          playAudioBase64(data.audio, data.format || 'mp3')
+        }
+      } catch (e) {
+        console.error('[KOGNIT] WS parse error:', e)
+      }
+    }
+
+    ws.onclose = () => {
+      console.log('[KOGNIT] WS disconnected, reconnecting in 3s...')
+      setTimeout(connectWs, 3000)
+    }
+
+    ws.onerror = (err) => {
+      console.error('[KOGNIT] WS error:', err)
+    }
+  }, [])
+
+  // Auto-connect on mount
+  useEffect(() => {
+    connectWs()
+    return () => {
+      wsRef.current?.close()
+    }
+  }, [connectWs])
+
+  // Send code updates over WebSocket
+  const sendCodeUpdate = useCallback((code: string, language: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'code_update',
+        code,
+        language,
+      }))
+    }
+  }, [])
+
+  // Play base64-encoded audio
+  const playAudioBase64 = useCallback((b64: string, format: string) => {
+    try {
+      const binary = atob(b64)
+      const bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i)
+      }
+      const blob = new Blob([bytes], { type: `audio/${format}` })
+      const url = URL.createObjectURL(blob)
+      const audio = new Audio(url)
+      audio.onended = () => URL.revokeObjectURL(url)
+      audio.play().catch(e => console.error('[KOGNIT] Audio play error:', e))
+    } catch (e) {
+      console.error('[KOGNIT] Audio decode error:', e)
+    }
+  }, [])
+
+  // Start microphone with VAD (Voice Activity Detection)
+  const startMic = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      mediaStreamRef.current = stream
+
+      const audioCtx = new AudioContext()
+      audioContextRef.current = audioCtx
+
+      const source = audioCtx.createMediaStreamSource(stream)
+      const analyser = audioCtx.createAnalyser()
+      analyser.fftSize = 2048
+      analyser.smoothingTimeConstant = 0.8
+      source.connect(analyser)
+      analyserRef.current = analyser
+
+      setIsMicActive(true)
+
+      // VAD loop — detect speech via volume threshold
+      let isRecording = false
+      let recorder: MediaRecorder | null = null
+      let chunks: Blob[] = []
+
+      const SILENCE_THRESHOLD = 0.015
+      const SILENCE_DURATION = 1500 // ms of silence before ending
+      const MIN_RECORDING_MS = 500
+
+      const dataArray = new Float32Array(analyser.fftSize)
+      let recordingStartTime = 0
+
+      const checkVAD = () => {
+        if (!analyserRef.current) return
+        analyserRef.current.getFloatTimeDomainData(dataArray)
+
+        // Compute RMS volume
+        let sum = 0
+        for (let i = 0; i < dataArray.length; i++) {
+          sum += dataArray[i] * dataArray[i]
+        }
+        const rms = Math.sqrt(sum / dataArray.length)
+
+        if (rms > SILENCE_THRESHOLD && !isRecording) {
+          // Speech detected — start recording
+          isRecording = true
+          chunks = []
+          recordingStartTime = Date.now()
+          recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+          recorder.ondataavailable = (e) => {
+            if (e.data.size > 0) chunks.push(e.data)
+          }
+          recorder.onstop = () => {
+            if (chunks.length > 0 && Date.now() - recordingStartTime > MIN_RECORDING_MS) {
+              const blob = new Blob(chunks, { type: 'audio/webm' })
+              sendAudioChunk(blob)
+            }
+            isRecording = false
+          }
+          recorder.start()
+          mediaRecorderRef.current = recorder
+
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
+        }
+
+        if (rms > SILENCE_THRESHOLD && isRecording) {
+          // Still speaking — reset silence timer
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
+          silenceTimerRef.current = setTimeout(() => {
+            // Silence detected — stop recording
+            if (recorder && recorder.state === 'recording') {
+              recorder.stop()
+            }
+          }, SILENCE_DURATION)
+        }
+
+        vadFrameRef.current = requestAnimationFrame(checkVAD)
+      }
+
+      vadFrameRef.current = requestAnimationFrame(checkVAD)
+    } catch (e) {
+      console.error('[KOGNIT] Microphone error:', e)
+    }
+  }, [])
+
+  // Stop microphone
+  const stopMic = useCallback(() => {
+    if (vadFrameRef.current) cancelAnimationFrame(vadFrameRef.current)
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop()
+    }
+    mediaStreamRef.current?.getTracks().forEach(t => t.stop())
+    audioContextRef.current?.close()
+    analyserRef.current = null
+    setIsMicActive(false)
+  }, [])
+
+  // Send recorded audio chunk to backend
+  const sendAudioChunk = useCallback(async (blob: Blob) => {
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return
+    
+    const buffer = await blob.arrayBuffer()
+    const b64 = btoa(
+      new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+    )
+
+    wsRef.current.send(JSON.stringify({
+      type: 'audio_in',
+      audio: b64,
+      format: 'webm',
+    }))
+  }, [])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopMic()
+    }
+  }, [stopMic])
+
+  return {
+    aiState,
+    aiText,
+    userTranscript,
+    isMicActive,
+    sendCodeUpdate,
+    startMic,
+    stopMic,
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Dashboard Page                                                     */
 /* ------------------------------------------------------------------ */
 
 export default function DashboardPage() {
   const { state: charState, expression, trigger } = useCharacterReaction()
+  const { aiState, aiText, userTranscript, isMicActive, sendCodeUpdate, startMic, stopMic } = useKognitTutor()
   
   // File state
   const [files, setFiles] = useState<CodeFile[]>([])
@@ -327,6 +568,29 @@ export default function DashboardPage() {
   const [isInputPanelOpen, setIsInputPanelOpen] = useState(false)
 
   const activeFile = files.find(f => f.id === activeFileId)
+
+  // Send code updates to the AI tutor (debounced separately from extraction)
+  useEffect(() => {
+    if (!activeFile?.content || !activeFile?.language) return
+    const timer = setTimeout(() => {
+      sendCodeUpdate(activeFile.content, activeFile.language)
+    }, 5000) // 5s debounce for code monitoring to save Gemini rate limits
+    return () => clearTimeout(timer)
+  }, [activeFile?.content, activeFile?.language, sendCodeUpdate])
+
+  // Log AI responses to the console
+  useEffect(() => {
+    if (aiText) {
+      setConsoleLines(prev => [...prev, { type: 'hint', text: `[KOGNIT AI] ${aiText}` }])
+    }
+  }, [aiText])
+
+  // Log user transcript to the console
+  useEffect(() => {
+    if (userTranscript) {
+      setConsoleLines(prev => [...prev, { type: 'info', text: `[YOU] ${userTranscript}` }])
+    }
+  }, [userTranscript])
   // Debounced input extraction
   useEffect(() => {
     if (!activeFile?.content) {
@@ -1643,24 +1907,59 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-2">
                   <motion.span
                     className={`h-2 w-2 rounded-full ${
-                      charState === 'idle'
-                        ? 'bg-primary/40'
-                        : charState === 'nod'
-                          ? 'bg-emerald-400'
-                          : charState === 'think'
-                            ? 'bg-pink-400'
-                            : 'bg-amber-400'
+                      aiState === 'speaking'
+                        ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]'
+                        : aiState === 'thinking'
+                          ? 'bg-pink-400 shadow-[0_0_8px_#f472b6]'
+                          : aiState === 'listening'
+                            ? 'bg-sky-400 shadow-[0_0_8px_#38bdf8]'
+                            : charState !== 'idle'
+                              ? 'bg-amber-400'
+                              : 'bg-primary/40'
                     }`}
-                    animate={{ scale: charState !== 'idle' ? [1, 1.4, 1] : 1 }}
-                    transition={{ duration: 0.6, repeat: charState !== 'idle' ? 3 : 0 }}
+                    animate={{ scale: aiState !== 'idle' ? [1, 1.4, 1] : charState !== 'idle' ? [1, 1.4, 1] : 1 }}
+                    transition={{ duration: 0.6, repeat: aiState !== 'idle' || charState !== 'idle' ? Infinity : 0 }}
                   />
                   <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/60">
-                    {charState === 'idle' && 'observing'}
-                    {charState === 'nod' && 'milestone cleared ✓'}
-                    {charState === 'think' && 'analyzing issue...'}
-                    {charState === 'gesture' && 'delivering hint →'}
+                    {aiState === 'speaking' && '🔊 speaking...'}
+                    {aiState === 'thinking' && '🧠 analyzing...'}
+                    {aiState === 'listening' && '🎙️ listening...'}
+                    {aiState === 'idle' && charState === 'idle' && 'observing'}
+                    {aiState === 'idle' && charState === 'nod' && 'milestone cleared ✓'}
+                    {aiState === 'idle' && charState === 'think' && 'analyzing issue...'}
+                    {aiState === 'idle' && charState === 'gesture' && 'delivering hint →'}
                   </span>
                 </div>
+                
+                {/* Microphone toggle */}
+                <button
+                  onClick={() => isMicActive ? stopMic() : startMic()}
+                  className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[9px] uppercase tracking-widest transition-all ${
+                    isMicActive
+                      ? 'bg-sky-400/20 text-sky-300 border border-sky-400/40 shadow-[0_0_12px_rgba(56,189,248,0.2)]'
+                      : 'text-muted-foreground/50 hover:text-muted-foreground/80 hover:bg-white/5 border border-transparent'
+                  }`}
+                  title={isMicActive ? 'Microphone active — click to mute' : 'Click to enable voice conversation'}
+                >
+                  {isMicActive ? (
+                    <motion.svg
+                      className="w-3 h-3"
+                      fill="currentColor"
+                      viewBox="0 0 24 24"
+                      animate={{ scale: [1, 1.2, 1] }}
+                      transition={{ duration: 1, repeat: Infinity }}
+                    >
+                      <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                      <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                    </motion.svg>
+                  ) : (
+                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                      <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                    </svg>
+                  )}
+                  {isMicActive ? 'live' : 'mic'}
+                </button>
               </div>
             </div>
           </GlassPanel>

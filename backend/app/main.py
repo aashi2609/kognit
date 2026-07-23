@@ -262,3 +262,16 @@ async def run_code(body: RunCode):
     """
     return await execute_code(body.language, body.content, body.filename, body.stdin)
 
+
+# ── WebSocket Gateway (Real-time Voice Tutor) ─────────────────────────
+
+from fastapi import WebSocket
+from app.ws_gateway import handle_websocket
+
+@app.websocket("/ws/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    """
+    Real-time bidirectional channel for the AI tutor.
+    Handles code_update, audio_in, and audio_out events.
+    """
+    await handle_websocket(websocket, session_id)
