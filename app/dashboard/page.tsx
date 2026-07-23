@@ -24,7 +24,7 @@ interface CodeFile {
   folder_path?: string;
 }
 
-type LogType = 'info' | 'success' | 'error' | 'hint' | 'warn';
+type LogType = 'info' | 'success' | 'error' | 'hint' | 'warn' | 'infra';
 
 interface LogEntry {
   type: LogType;
@@ -317,10 +317,46 @@ export default function DashboardPage() {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   
   const [consoleLines, setConsoleLines] = useState<LogEntry[]>([
-    { type: 'info', text: '[KOGNIT] Session initialized — environment loaded' },
+    { type: 'info', text: '[KOGNIT] Session initialized - environment loaded' },
     { type: 'info', text: '[KOGNIT] Connecting to Socratic reasoning core...' }
   ])
   const consoleRef = useRef<HTMLDivElement>(null)
+  
+  const [prompts, setPrompts] = useState<string[]>([])
+  const [inputValues, setInputValues] = useState<string[]>([])
+  const [isInputPanelOpen, setIsInputPanelOpen] = useState(false)
+
+  const activeFile = files.find(f => f.id === activeFileId)
+  // Debounced input extraction
+  useEffect(() => {
+    if (!activeFile?.content) {
+      setPrompts([])
+      setInputValues([])
+      return
+    }
+    const timer = setTimeout(() => {
+      fetch(`${API_BASE}/extract-prompts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ language: activeFile.language, content: activeFile.content })
+      })
+      .then(res => res.json())
+      .then(data => {
+        const extracted = data.prompts || []
+        setPrompts(extracted)
+        setInputValues(prev => {
+          const newVals = [...prev]
+          while (newVals.length < extracted.length) newVals.push('')
+          return newVals.slice(0, extracted.length)
+        })
+        if (extracted.length > 0 && !isInputPanelOpen) {
+          setIsInputPanelOpen(true)
+        }
+      })
+      .catch(err => console.error("Extraction failed:", err))
+    }, 800)
+    return () => clearTimeout(timer)
+  }, [activeFile?.content, activeFile?.language])
 
   // Auto-scroll console
   useEffect(() => {
@@ -396,7 +432,6 @@ export default function DashboardPage() {
     })
   }, [])
 
-  const activeFile = files.find(f => f.id === activeFileId)
 
   // 2. Editor Change Handler with Debounced Save
   const handleEditorChange = (value: string | undefined) => {
@@ -676,7 +711,9 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           language: activeFile.language,
-          content: activeFile.content
+          content: activeFile.content,
+          filename: activeFile.filename,
+          stdin: inputValues.join('\n')
         }),
         signal: controller.signal
       })
@@ -688,11 +725,23 @@ export default function DashboardPage() {
         throw new Error(data.detail || `Server returned ${res.status}`)
       }
 
-      const { run, compile } = data
+      const { run, compile, error_type } = data
       let producedOutput = false
+
+      if (error_type === 'infra') {
+        addLog('infra', `[SERVICE] Infrastructure Error: Piston API unavailable`)
+        producedOutput = true
+      }
 
       if (compile?.stderr) {
         addLog('warn', `[COMPILE] ${compile.stderr}`)
+        producedOutput = true
+      }
+
+      const stderrStr = run?.stderr || '';
+      const isAwaitingInput = stderrStr.includes('EOFError') || stderrStr.includes('NoSuchElementException') || stderrStr.includes('Scanner');
+      if (isAwaitingInput) {
+        addLog('warn', `[RUN] Program expected more input — check your Input panel`)
         producedOutput = true
       }
 
@@ -703,28 +752,28 @@ export default function DashboardPage() {
         producedOutput = true
       }
 
-      if (run?.stderr) {
-        const lines = run.stderr.split('\n').filter(Boolean)
+      if (stderrStr && !isAwaitingInput) {
+        const lines = stderrStr.split('\n').filter(Boolean)
         lines.forEach((line: string) => addLog('error', `! ${line}`))
         trigger('gesture')
         producedOutput = true
       }
 
-      if (run?.code !== 0 && run?.code !== undefined) {
-        addLog('error', `[RUN] ✗ Process exited with code ${run.code}`)
+      if (run?.code !== 0 && run?.code !== undefined && error_type !== 'infra') {
+        if (!isAwaitingInput) addLog('error', `[RUN] ✗ Process exited with code ${run.code}`)
         trigger('gesture')
       } else if (!producedOutput) {
         addLog('success', '[RUN] ✓ Program executed successfully but produced no output')
         trigger('nod')
-      } else {
+      } else if (error_type !== 'infra') {
         addLog('success', '[RUN] ✓ Execution completed')
       }
     } catch (err: any) {
       clearTimeout(timeoutId)
       if (err.name === 'AbortError') {
-        addLog('error', `[RUN] ✗ Execution timed out (took >15s)`)
+        addLog('infra', `[SERVICE] ✗ Execution timed out (took >15s)`)
       } else {
-        addLog('error', `[RUN] ✗ Execution failed: ${err.message || err}`)
+        addLog('infra', `[SERVICE] ✗ Execution failed: ${err.message || err}`)
       }
       trigger('gesture')
     } finally {
@@ -1415,42 +1464,116 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Console logger */}
-          <div className="relative rounded-2xl border border-pink-400/10 bg-neutral-950/40 backdrop-blur-3xl hover:border-pink-400/20 transition-colors duration-300 shrink-0" style={{ height: '220px' }}>
-            <div className="pointer-events-none absolute inset-0 rounded-2xl" style={{ background: 'radial-gradient(60% 40% at 80% 30%, oklch(0.78 0.07 350 / 5%), transparent 70%)' }} aria-hidden="true" />
-            <div className="absolute left-4 top-3 z-10 flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-pink-400/60" />
-              <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/50">console.output</span>
-            </div>
-            
-            <div
-              ref={consoleRef}
-              className="no-scrollbar absolute inset-0 overflow-y-auto px-5"
-              style={{ paddingTop: '36px', paddingBottom: '12px' }}
-            >
-              {consoleLines.map((entry, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="flex items-start gap-3 py-1.5"
-                >
-                  <span
-                    className={`mt-[3px] h-2 w-2 shrink-0 rounded-full ${getLogDotColor(entry.type)}`}
-                  />
-                  <span
-                    className={`font-mono text-[13px] leading-relaxed ${getLogTextColor(entry.type)}`}
+          {/* Bottom Row: Console + Input */}
+          <div className="flex gap-4 shrink-0" style={{ height: '220px' }}>
+            {/* Console logger */}
+            <div className="relative flex-1 rounded-2xl border border-pink-400/10 bg-neutral-950/40 backdrop-blur-3xl hover:border-pink-400/20 transition-colors duration-300 overflow-hidden">
+              <div className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(60% 40% at 80% 30%, oklch(0.78 0.07 350 / 5%), transparent 70%)' }} aria-hidden="true" />
+              <div className="absolute left-4 top-3 z-10 flex items-center gap-2">
+                <span className="h-1.5 w-1.5 rounded-full bg-pink-400/60" />
+                <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/50">console.output</span>
+              </div>
+              
+              <div
+                ref={consoleRef}
+                className="no-scrollbar absolute inset-0 overflow-y-auto px-5"
+                style={{ paddingTop: '36px', paddingBottom: '12px' }}
+              >
+                {consoleLines.map((entry, i) => (
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="flex items-start gap-3 py-1.5"
                   >
-                    {entry.text}
+                    <span
+                      className={`font-mono text-[13px] leading-relaxed tracking-tight ${getLogTextColor(entry.type)}`}
+                      style={{
+                        textShadow: entry.type === 'error' ? '0 0 12px rgba(244,114,182,0.3)' : 
+                                    entry.type === 'success' ? '0 0 12px rgba(52,211,153,0.2)' : 'none'
+                      }}
+                    >
+                      {entry.text}
+                    </span>
+                  </motion.div>
+                ))}
+                {consoleLines.length === 0 && (
+                  <span className="font-mono text-[12px] text-slate-500">
+                    Awaiting output...
                   </span>
-                </motion.div>
-              ))}
-              {consoleLines.length === 0 && (
-                <span className="font-mono text-[12px] text-slate-500">
-                  Awaiting output...
-                </span>
-              )}
+                )}
+              </div>
             </div>
+
+            {/* Input panel */}
+            {prompts.length > 0 && (
+              <div 
+                className={`relative rounded-2xl border border-sky-400/10 bg-neutral-950/40 backdrop-blur-3xl hover:border-sky-400/20 transition-all duration-300 flex flex-col overflow-hidden ${isInputPanelOpen ? 'w-64' : 'w-10 cursor-pointer'}`}
+                onClick={() => !isInputPanelOpen && setIsInputPanelOpen(true)}
+              >
+                <div className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(60% 40% at 20% 30%, oklch(0.7 0.15 250 / 5%), transparent 70%)' }} aria-hidden="true" />
+                
+                {/* Header / Toggle */}
+                <div 
+                  className="absolute left-0 right-0 top-0 h-10 z-10 flex items-center justify-between px-3 cursor-pointer"
+                  onClick={(e) => { e.stopPropagation(); setIsInputPanelOpen(!isInputPanelOpen); }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`h-1.5 w-1.5 rounded-full bg-sky-400/60 transition-transform ${isInputPanelOpen ? 'scale-100' : 'scale-75'}`} />
+                    {isInputPanelOpen && <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/50">Program Input</span>}
+                  </div>
+                  {isInputPanelOpen && (
+                    <svg className="w-3 h-3 text-muted-foreground/50 hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" transform="rotate(180 12 12)" />
+                    </svg>
+                  )}
+                  {!isInputPanelOpen && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <svg className="w-3 h-3 text-sky-400/60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Content */}
+                {isInputPanelOpen && (
+                  <div className="flex flex-col flex-1 px-3 pb-3 pt-10 relative z-20 overflow-y-auto no-scrollbar">
+                    <p className="font-mono text-[10px] text-muted-foreground/40 mb-3 leading-tight">
+                      Fill in the expected inputs for your program.
+                    </p>
+                    <div className="flex flex-col gap-3 flex-1">
+                      {prompts.map((prompt, i) => (
+                        <div key={i} className="flex flex-col gap-1">
+                          <label className="font-mono text-[10px] text-sky-400/80 line-clamp-1" title={prompt}>{prompt}</label>
+                          <input
+                            type="text"
+                            value={inputValues[i] || ''}
+                            onChange={(e) => {
+                              const newVals = [...inputValues];
+                              newVals[i] = e.target.value;
+                              setInputValues(newVals);
+                            }}
+                            className="w-full bg-black/20 border border-white/5 rounded-lg p-2 font-mono text-[12px] text-slate-300 focus:outline-none focus:border-sky-400/30"
+                            placeholder="Type input..."
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleRunCode()
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleRunCode(); }}
+                      disabled={isRunning}
+                      className="mt-4 w-full flex items-center justify-center gap-2 rounded-lg bg-sky-400/10 py-2 text-[11px] font-medium uppercase tracking-wider text-sky-400 hover:bg-sky-400/20 disabled:opacity-50 transition-colors shrink-0"
+                    >
+                      {isRunning ? 'Running...' : 'Run Program'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -1585,6 +1708,7 @@ function getLogTextColor(type: string) {
   switch (type) {
     case 'success': return 'text-emerald-300'
     case 'error': return 'text-pink-300'
+    case 'infra': return 'text-fuchsia-400 font-semibold'
     case 'warn': return 'text-amber-300'
     case 'hint': return 'text-sky-300'
     default: return 'text-slate-300'

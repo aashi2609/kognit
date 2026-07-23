@@ -24,40 +24,21 @@ from app.llm_router import get_available_models
 
 import httpx
 
-WANDBOX_API = "https://wandbox.org/api/compile.json"
-
-# Kognit language name → Wandbox compiler name
-WANDBOX_COMPILER_MAP: dict[str, str] = {
-    "javascript": "nodejs-20.17.0",
-    "javascript (react)": "nodejs-20.17.0",
-    "typescript": "typescript-5.6.2",
-    "typescript (react)": "typescript-5.6.2",
-    "python": "cpython-3.14.0",
-    "java": "openjdk-jdk-22+36",
-    "c": "gcc-13.2.0-c",
-    "c++": "gcc-13.2.0",
-    "c#": "mono-6.12.0.199",
-    "go": "go-1.23.2",
-    "rust": "rust-1.82.0",
-    "ruby": "ruby-4.0.2",
-    "php": "php-8.3.12",
-    "lua": "lua-5.4.7",
-    "perl": "perl-5.42.0",
-    "r": "r-4.4.1",
-    "bash": "bash",
-    "shell": "bash",
-    "haskell": "ghc-9.10.1",
-    "scala": "scala-3.5.1",
-    "swift": "swift-6.0.1",
-}
-
-
 # ── Lifespan ──────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Startup / shutdown hooks."""
     await init_db()
     print("[KOGNIT] ✓ Backend online")
+    
+    # Pre-fetch Piston runtimes cache
+    try:
+        from app.code_runner import get_piston_runtimes
+        await get_piston_runtimes()
+        print("[KOGNIT] ✓ Piston runtimes cached")
+    except Exception as e:
+        print(f"[KOGNIT] ✗ Failed to cache Piston runtimes: {e}")
+        
     yield
     print("[KOGNIT] Shutting down...")
 
@@ -248,66 +229,36 @@ async def delete_file(file_id: str, db: AsyncSession = Depends(get_db)):
     return {"success": True}
 
 
-# ── Code Execution (Wandbox) ──────────────────────────────────────────
+# ── Code Execution & Parsing (Piston/Wandbox) ───────────────────────────────────
+
+from app.code_runner import execute_code, get_piston_runtimes
+from app.input_extractor import extract_input_prompts
+
+class ExtractPromptsRequest(BaseModel):
+    language: str
+    content: str
+
+@app.post("/extract-prompts", tags=["execution"])
+async def extract_prompts(body: ExtractPromptsRequest):
+    """
+    Parse source code to find expected standard input prompts.
+    Returns a list of labels (e.g. ['Enter name:', 'Enter age:']).
+    """
+    prompts = extract_input_prompts(body.language, body.content)
+    return {"prompts": prompts}
 
 class RunCode(BaseModel):
     language: str
     content: str
-
+    filename: str = ""
+    stdin: str = ""
 
 @app.post("/run", tags=["execution"])
 async def run_code(body: RunCode):
     """
-    Execute code via the Wandbox API.
+    Execute code via the Piston API.
     Proxied through the backend to avoid browser CORS issues.
-    Returns a normalized { run: { stdout, stderr, code } } shape.
+    Returns a normalized { run: { stdout, stderr, code }, compile: { ... } } shape.
     """
-    lang_key = body.language.lower()
-    compiler = WANDBOX_COMPILER_MAP.get(lang_key)
-    if not compiler:
-        raise HTTPException(status_code=400, detail=f"Unsupported language: {body.language}")
-
-    print(f"[KOGNIT] Running code: {compiler} ({len(body.content)} chars)")
-
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                WANDBOX_API,
-                json={
-                    "code": body.content,
-                    "compiler": compiler,
-                },
-            )
-
-            if resp.status_code != 200:
-                error_text = resp.text[:300]
-                print(f"[KOGNIT] Wandbox error: {resp.status_code} — {error_text}")
-                raise HTTPException(
-                    status_code=502,
-                    detail=f"Wandbox returned {resp.status_code}: {error_text}",
-                )
-
-            data = resp.json()
-            print(f"[KOGNIT] Wandbox response: status={data.get('status')}, "
-                  f"stdout={repr(data.get('program_output', '')[:100])}")
-
-            # Normalize to { run: { stdout, stderr, code }, compile: { ... } }
-            return {
-                "run": {
-                    "stdout": data.get("program_output", ""),
-                    "stderr": data.get("program_error", ""),
-                    "code": int(data.get("status", 0)),
-                },
-                "compile": {
-                    "stderr": data.get("compiler_error", ""),
-                    "output": data.get("compiler_output", ""),
-                },
-            }
-    except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="Code execution timed out (>15s)")
-    except HTTPException:
-        raise  # re-raise our own
-    except Exception as e:
-        print(f"[KOGNIT] Run exception: {type(e).__name__}: {e}")
-        raise HTTPException(status_code=500, detail=f"Execution failed: {str(e)}")
+    return await execute_code(body.language, body.content, body.filename, body.stdin)
 
