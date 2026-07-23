@@ -9,7 +9,7 @@ import { StudentCharacter, type Expression } from "@/components/student-characte
 import { DashboardThemeBox } from "@/components/dashboard-theme-box"
 
 /* ------------------------------------------------------------------ */
-/*  Mock data — initial files, console log stream, Socratic hints     */
+/*  Types & Interfaces                                                 */
 /* ------------------------------------------------------------------ */
 
 interface CodeFile {
@@ -19,27 +19,6 @@ interface CodeFile {
   content: string;
 }
 
-const INITIAL_FILES: CodeFile[] = [
-  { 
-    id: '1', 
-    filename: 'mergeSort.js', 
-    language: 'javascript', 
-    content: 'function mergeSort(arr) {\n  if (arr.length <= 1) return arr;\n  const mid = Math.floor(arr.length / 2);\n  const left = mergeSort(arr.slice(0, mid));\n  const right = mergeSort(arr.slice(mid));\n  return merge(left, right);\n}\n\nfunction merge(left, right) {\n  const result = [];\n  while (left.length && right.length) {\n    if (left[0] <= right[0]) result.push(left.shift());\n    else result.push(right.shift());\n  }\n  return [...result, ...left, ...right];\n}' 
-  },
-  { 
-    id: '2', 
-    filename: 'CoreProcessor.java', 
-    language: 'java', 
-    content: 'import java.util.stream.Stream;\n\npublic class CoreProcessor {\n    public static void main(String[] args) {\n        Stream<String> stream = Stream.of(args);\n        stream.forEach(System.out::println);\n    }\n}' 
-  },
-  { 
-    id: '3', 
-    filename: 'MainController.c', 
-    language: 'c', 
-    content: '#include <stdio.h>\n\nint main() {\n    printf("Initializing Main Controller...\\n");\n    return 0;\n}' 
-  }
-];
-
 type LogType = 'info' | 'success' | 'error' | 'hint' | 'warn';
 
 interface LogEntry {
@@ -47,12 +26,9 @@ interface LogEntry {
   text: string;
 }
 
-const CONSOLE_STREAM: LogEntry[] = [
-  { type: 'info', text: '[KOGNIT] Session initialized — environment loaded' },
-  { type: 'info', text: '[KOGNIT] Connecting to Socratic reasoning core...' },
-  { type: 'success', text: '[COMPILE] ✓ 0 errors, 0 warnings' },
-  { type: 'info', text: '[TELEMETRY] Listening for file changes' }
-]
+/* ------------------------------------------------------------------ */
+/*  Constants & Config                                                 */
+/* ------------------------------------------------------------------ */
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -64,10 +40,6 @@ const RUNNABLE_LANGUAGES = new Set([
   "perl", "r", "bash", "shell",
   "haskell", "scala", "swift",
 ])
-
-/* ------------------------------------------------------------------ */
-/*  Language → Monaco language ID mapping                               */
-/* ------------------------------------------------------------------ */
 
 function toMonacoLanguage(lang: string | null): string {
   if (!lang) return "plaintext"
@@ -99,6 +71,50 @@ function toMonacoLanguage(lang: string | null): string {
     "sql": "sql",
   }
   return map[lower] || "plaintext"
+}
+
+/* ------------------------------------------------------------------ */
+/*  IDE File Icon component                                            */
+/* ------------------------------------------------------------------ */
+
+function FileIcon({ filename }: { filename: string }) {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? ''
+  const map: Record<string, { label: string; color: string }> = {
+    js:   { label: 'JS', color: '#f7df1e' },
+    ts:   { label: 'TS', color: '#3178c6' },
+    tsx:  { label: 'TX', color: '#61dafb' },
+    jsx:  { label: 'JX', color: '#61dafb' },
+    py:   { label: 'PY', color: '#3572a5' },
+    java: { label: 'JV', color: '#b07219' },
+    c:    { label: 'C',  color: '#555555' },
+    cpp:  { label: 'C+', color: '#f34b7d' },
+    cs:   { label: 'C#', color: '#178600' },
+    go:   { label: 'GO', color: '#00add8' },
+    rs:   { label: 'RS', color: '#dea584' },
+    rb:   { label: 'RB', color: '#701516' },
+    php:  { label: 'PH', color: '#4f5d95' },
+    lua:  { label: 'LU', color: '#000080' },
+    sh:   { label: 'SH', color: '#89e051' },
+    sql:  { label: 'SQ', color: '#e38c00' },
+    json: { label: '{}', color: '#fbc02d' },
+    html: { label: '<>', color: '#e34c26' },
+    css:  { label: 'CS', color: '#563d7c' },
+  }
+  const { label, color } = map[ext] ?? { label: 'FILE', color: '#34d399' }
+  return (
+    <span
+      className="inline-flex items-center justify-center font-mono text-[9px] font-extrabold shrink-0 px-1 py-0.5 rounded"
+      style={{
+        color,
+        backgroundColor: `${color}18`,
+        border: `1px solid ${color}30`,
+        minWidth: '20px',
+        lineHeight: 1,
+      }}
+    >
+      {label}
+    </span>
+  )
 }
 
 /* ------------------------------------------------------------------ */
@@ -167,7 +183,7 @@ function FilenameModal({
 }
 
 /* ------------------------------------------------------------------ */
-/*  Character state machine — reacts to console events                 */
+/*  Character reaction hook                                            */
 /* ------------------------------------------------------------------ */
 
 type CharacterState = 'idle' | 'nod' | 'think' | 'gesture'
@@ -189,7 +205,7 @@ function useCharacterReaction() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Page                                                               */
+/*  Dashboard Page                                                     */
 /* ------------------------------------------------------------------ */
 
 export default function DashboardPage() {
@@ -227,7 +243,7 @@ export default function DashboardPage() {
   // Track which file IDs have had their content loaded
   const contentLoadedRef = useRef<Set<string>>(new Set())
 
-  // 1. Fetch file list on load (metadata only — no content)
+  // 1. Fetch file list on load
   useEffect(() => {
     fetch(`${API_BASE}/files`)
       .then(res => res.json())
@@ -243,7 +259,7 @@ export default function DashboardPage() {
       })
   }, [addLog])
 
-  // 1b. Whenever the active file changes, fetch its full content if not yet loaded
+  // 1b. Lazy fetch full content when active file changes
   useEffect(() => {
     if (!activeFileId) return
     if (contentLoadedRef.current.has(activeFileId)) return
@@ -261,7 +277,7 @@ export default function DashboardPage() {
       })
   }, [activeFileId])
 
-  // Define the custom theme BEFORE the editor mounts
+  // Monaco custom theme
   const handleEditorBeforeMount = useCallback((monacoInstance: typeof import('monaco-editor')) => {
     monacoInstance.editor.defineTheme('kognit-dark', {
       base: 'vs-dark',
@@ -288,15 +304,13 @@ export default function DashboardPage() {
 
   const activeFile = files.find(f => f.id === activeFileId)
 
-  // 2. Handle Editor Change with Debounced Save
+  // 2. Editor Change Handler with Debounced Save
   const handleEditorChange = (value: string | undefined) => {
     if (value === undefined || !activeFile) return;
     
-    // Update local state immediately
     setFiles(prev => prev.map(f => f.id === activeFileId ? { ...f, content: value } : f));
     setSaveStatus('unsaved');
     
-    // Debounce save
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(async () => {
       setSaveStatus('saving');
@@ -304,9 +318,7 @@ export default function DashboardPage() {
         await fetch(`${API_BASE}/files/${activeFileId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            content: value
-          })
+          body: JSON.stringify({ content: value })
         });
         setSaveStatus('saved');
       } catch (err) {
@@ -316,7 +328,7 @@ export default function DashboardPage() {
     }, 1000);
   };
 
-  // 3. Handle File Deletion
+  // 3. Delete File Handler
   const handleDeleteFile = useCallback(async (fileId: string, e: React.MouseEvent) => {
     e.stopPropagation()
     try {
@@ -336,7 +348,7 @@ export default function DashboardPage() {
     }
   }, [activeFileId, addLog])
 
-  // 4. Handle File Creation
+  // 4. Create File Handler
   const handleCreateFile = async (newFilename: string) => {
     try {
       const res = await fetch(`${API_BASE}/files`, {
@@ -353,7 +365,6 @@ export default function DashboardPage() {
       }
       
       const newFile = await res.json();
-      // New file has empty content — mark as loaded so we don't re-fetch
       contentLoadedRef.current.add(newFile.id)
       setFiles(prev => [...prev, newFile]);
       setActiveFileId(newFile.id);
@@ -363,7 +374,7 @@ export default function DashboardPage() {
     }
   };
 
-  // 4. Handle Code Execution
+  // 5. Run Code Handler
   const handleRunCode = async () => {
     if (!activeFile || !canRun) return
     setIsRunning(true)
@@ -435,11 +446,8 @@ export default function DashboardPage() {
     }
   }
 
-  // Check if active language supports execution
   const canRun = activeFile ? RUNNABLE_LANGUAGES.has(activeFile.language.toLowerCase()) : false
-  // True once the active file's content has been fetched from the backend
   const contentReady = activeFileId ? contentLoadedRef.current.has(activeFileId) : false
-
 
   return (
     <main className="relative z-10 min-h-screen px-4 py-6 sm:px-6">
@@ -487,7 +495,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Soft Auth Buttons & Theme Box directly on the dashboard */}
+        {/* Soft Auth Buttons & Theme Box */}
         <div className="flex items-center gap-3">
           <Link
             href="/login"
@@ -505,63 +513,70 @@ export default function DashboardPage() {
             <span>Initialize Account</span>
           </Link>
 
-          {/* Antigravity Setup style Theme Picker Box in Top Right Corner */}
           <DashboardThemeBox />
         </div>
       </nav>
 
       {/* Main grid: explorer + editor + character */}
-      <div className="mx-auto grid max-w-[1400px] gap-4 lg:grid-cols-[240px_1fr_320px]">
+      <div className="mx-auto grid max-w-[1400px] gap-4 lg:grid-cols-[260px_1fr_320px]">
         
-        {/* ---- LEFT: File Explorer & Telemetry ---- */}
+        {/* ---- LEFT: IDE-Style File Explorer & Telemetry ---- */}
         <div className="flex flex-col gap-4">
           
           <GlassPanel label="explorer" className="flex-1 min-h-[400px]">
-            <div className="pt-8 pb-4 px-4 flex flex-col gap-2">
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">KOGNIT_ENGINE</span>
+            <div className="pt-8 pb-4 px-3 flex flex-col gap-3">
+              {/* Explorer Header */}
+              <div className="flex items-center justify-between px-1 pb-2 border-b border-white/5">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-bold">KOGNIT_WORKSPACE</span>
+                </div>
                 <button 
                   onClick={() => setIsFilenameModalOpen(true)}
-                  className="font-mono text-[10px] uppercase text-emerald-400/80 hover:text-emerald-400 transition-colors font-bold tracking-widest"
+                  className="flex items-center gap-1 font-mono text-[10px] uppercase text-emerald-400/90 hover:text-emerald-300 transition-colors font-bold tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30"
+                  title="Create new file"
                 >
-                  + New
+                  <span>+</span> New
                 </button>
               </div>
+
+              {/* Tree View Item List */}
               <div className="flex flex-col gap-1">
                 {isLoading ? (
-                  <span className="font-mono text-[11px] text-muted-foreground/40 animate-pulse">
-                    Loading files...
+                  <span className="font-mono text-[11px] text-muted-foreground/40 animate-pulse px-2">
+                    Loading workspace files...
                   </span>
                 ) : files.length === 0 ? (
-                  <span className="font-mono text-[11px] text-muted-foreground/30">
-                    No files yet — click + New
+                  <span className="font-mono text-[11px] text-muted-foreground/30 px-2">
+                    No files found — click + New to create
                   </span>
                 ) : (
                   files.map(file => (
                     <div
                       key={file.id}
-                      className={`group flex items-center gap-2 px-2 py-1.5 rounded transition-all font-mono text-[11px] ${
+                      className={`group flex items-center justify-between px-2.5 py-1.5 rounded-md transition-all font-mono text-[11px] cursor-pointer ${
                         activeFileId === file.id
-                          ? 'bg-primary/10 text-primary border border-primary/20 shadow-[0_0_15px_rgba(52,211,153,0.1)]'
-                          : 'text-muted-foreground/60 hover:text-muted-foreground hover:bg-white/5 border border-transparent'
+                          ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shadow-[0_0_12px_rgba(52,211,153,0.15)] font-semibold'
+                          : 'text-slate-300/70 hover:text-slate-100 hover:bg-white/5 border border-transparent'
                       }`}
+                      onClick={() => setActiveFileId(file.id)}
                     >
-                      {/* Clicking the row selects the file */}
-                      <button
-                        onClick={() => setActiveFileId(file.id)}
-                        className="flex flex-1 items-center gap-2 min-w-0 text-left"
-                      >
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${activeFileId === file.id ? 'bg-primary shadow-[0_0_8px_#34d399]' : 'bg-blue-500'}`} />
-                        <span className="flex-1 truncate">{file.filename}</span>
-                      </button>
-                      {/* Delete button — visible on hover */}
-                      <button
-                        onClick={(e) => handleDeleteFile(file.id, e)}
-                        title={`Delete ${file.filename}`}
-                        className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-pink-400/60 hover:text-pink-400 hover:bg-pink-400/10 rounded px-1 py-0.5 font-mono text-[10px] leading-none"
-                      >
-                        ✕
-                      </button>
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <FileIcon filename={file.filename} />
+                        <span className="truncate">{file.filename}</span>
+                      </div>
+                      
+                      <div className="flex items-center gap-1">
+                        {activeFileId === file.id && (
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399] shrink-0" />
+                        )}
+                        <button
+                          onClick={(e) => handleDeleteFile(file.id, e)}
+                          title={`Delete ${file.filename}`}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-rose-400/70 hover:text-rose-300 hover:bg-rose-500/20 rounded px-1.5 py-0.5 font-mono text-[10px] leading-none shrink-0"
+                        >
+                          ✕
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}
@@ -608,16 +623,16 @@ export default function DashboardPage() {
           
           {/* Code editor */}
           <div className="relative rounded-2xl border border-emerald-400/10 bg-neutral-950/40 backdrop-blur-3xl hover:border-emerald-400/20 transition-colors duration-300" style={{ minHeight: '520px' }}>
-            {/* Inner glow */}
             <div className="pointer-events-none absolute inset-0 rounded-2xl" style={{ background: 'radial-gradient(60% 40% at 20% 30%, oklch(0.78 0.09 165 / 4%), transparent 70%)' }} aria-hidden="true" />
-            {/* Label */}
+            
+            {/* Header label */}
             <div className="absolute left-4 top-3 z-10 flex items-center gap-2">
               <span className="h-1.5 w-1.5 rounded-full bg-primary/50" />
               <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/50">editor — {activeFile?.filename || 'none'}</span>
             </div>
-            {/* Top bar: run button + save status */}
+
+            {/* Run button + Save status */}
             <div className="absolute right-4 top-3 z-20 flex items-center gap-3">
-              {/* Run Button */}
               {canRun && (
                 <button
                   onClick={handleRunCode}
@@ -656,7 +671,8 @@ export default function DashboardPage() {
                 <span className="font-mono text-[9px] uppercase tracking-wider text-pink-400/50">● unsaved</span>
               )}
             </div>
-            {/* Editor area — pushed below the top bar */}
+
+            {/* Editor Area */}
             <div style={{ height: '460px' }} className="pt-10 pb-2 px-4">
               {activeFile && contentReady ? (
                 <Editor
@@ -705,14 +721,12 @@ export default function DashboardPage() {
 
           {/* Console logger */}
           <div className="relative rounded-2xl border border-pink-400/10 bg-neutral-950/40 backdrop-blur-3xl hover:border-pink-400/20 transition-colors duration-300 shrink-0" style={{ height: '220px' }}>
-            {/* Inner glow */}
             <div className="pointer-events-none absolute inset-0 rounded-2xl" style={{ background: 'radial-gradient(60% 40% at 80% 30%, oklch(0.78 0.07 350 / 5%), transparent 70%)' }} aria-hidden="true" />
-            {/* Label */}
             <div className="absolute left-4 top-3 z-10 flex items-center gap-2">
               <span className="h-1.5 w-1.5 rounded-full bg-pink-400/60" />
               <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/50">console.output</span>
             </div>
-            {/* Scrollable log area */}
+            
             <div
               ref={consoleRef}
               className="no-scrollbar absolute inset-0 overflow-y-auto px-5"
@@ -748,7 +762,6 @@ export default function DashboardPage() {
         <div className="flex flex-col gap-4">
           <GlassPanel label="socratic.copilot" className="flex flex-col">
             <div className="relative flex h-[360px] items-center justify-center pt-6">
-              {/* Character reaction aura flash */}
               <AnimatePresence>
                 {charState === 'nod' && (
                   <motion.div
@@ -778,7 +791,6 @@ export default function DashboardPage() {
                 )}
               </AnimatePresence>
 
-              {/* Animated character wrapper */}
               <motion.div
                 className="relative h-[290px] w-[230px]"
                 animate={
@@ -807,7 +819,6 @@ export default function DashboardPage() {
               </motion.div>
             </div>
 
-            {/* Character state indicator */}
             <div className="border-t border-white/5 px-4 py-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -861,7 +872,7 @@ export default function DashboardPage() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Helpers                                                            */
+/*  Log formatting helpers                                             */
 /* ------------------------------------------------------------------ */
 
 function getLogDotColor(type: string) {

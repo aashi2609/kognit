@@ -255,4 +255,313 @@
       inset 0 8px 12px -4px rgba(255, 255, 255, 0.2),
       0 6px 16px -2px rgba(0, 0, 0, 0.5);
   }
+
+  /* ---- IDE chrome utilities ---- */
+  .ide-root {
+    height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: #0d0d0d;
+    font-family: var(--font-geist-mono), 'JetBrains Mono', monospace;
+  }
+
+  .ide-titlebar {
+    height: 36px;
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    background: #111111;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    user-select: none;
+    flex-shrink: 0;
+  }
+
+  .ide-body {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  .ide-activitybar {
+    width: 48px;
+    min-width: 48px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: #111111;
+    border-right: 1px solid rgba(255,255,255,0.06);
+    padding: 8px 0;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .ide-activitybar-btn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    color: rgba(255,255,255,0.35);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    border: none;
+    background: transparent;
+  }
+
+  .ide-activitybar-btn:hover {
+    background: rgba(255,255,255,0.07);
+    color: rgba(255,255,255,0.75);
+  }
+
+  .ide-activitybar-btn.active {
+    color: oklch(0.78 0.09 165);
+    background: oklch(0.78 0.09 165 / 10%);
+  }
+
+  .ide-sidebar {
+    width: 240px;
+    min-width: 240px;
+    display: flex;
+    flex-direction: column;
+    background: #141414;
+    border-right: 1px solid rgba(255,255,255,0.06);
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+
+  .ide-sidebar-section-header {
+    padding: 8px 12px 6px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.35);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .ide-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #0d0d0d;
+  }
+
+  .ide-tabbar {
+    height: 35px;
+    min-height: 35px;
+    display: flex;
+    align-items: stretch;
+    background: #111111;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-shrink: 0;
+  }
+
+  .ide-tabbar::-webkit-scrollbar { height: 0; }
+
+  .ide-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 14px;
+    min-width: 120px;
+    max-width: 180px;
+    font-size: 12px;
+    white-space: nowrap;
+    cursor: pointer;
+    border-right: 1px solid rgba(255,255,255,0.05);
+    color: rgba(255,255,255,0.4);
+    background: transparent;
+    transition: color 0.12s, background 0.12s;
+    position: relative;
+    border: none;
+    outline: none;
+    font-family: inherit;
+    flex-shrink: 0;
+  }
+
+  .ide-tab:hover {
+    color: rgba(255,255,255,0.7);
+    background: rgba(255,255,255,0.04);
+  }
+
+  .ide-tab.active {
+    color: rgba(255,255,255,0.92);
+    background: #0d0d0d;
+    border-top: 1px solid oklch(0.78 0.09 165 / 80%);
+  }
+
+  .ide-tab.active::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 1px;
+    background: transparent;
+  }
+
+  .ide-tab-close {
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    opacity: 0;
+    transition: opacity 0.12s, background 0.12s;
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: 10px;
+    color: rgba(255,255,255,0.5);
+  }
+
+  .ide-tab:hover .ide-tab-close,
+  .ide-tab.active .ide-tab-close {
+    opacity: 1;
+  }
+
+  .ide-tab-close:hover {
+    background: rgba(255,255,255,0.12);
+    color: white;
+  }
+
+  .ide-editor-area {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .ide-panel {
+    display: flex;
+    flex-direction: column;
+    background: #111111;
+    border-top: 1px solid rgba(255,255,255,0.07);
+    flex-shrink: 0;
+  }
+
+  .ide-panel-tabs {
+    height: 30px;
+    min-height: 30px;
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    padding: 0 8px;
+    gap: 2px;
+  }
+
+  .ide-panel-tab {
+    height: 24px;
+    padding: 0 12px;
+    font-size: 11px;
+    border-radius: 4px;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    font-family: inherit;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: rgba(255,255,255,0.35);
+    transition: color 0.12s, background 0.12s;
+  }
+
+  .ide-panel-tab.active {
+    color: rgba(255,255,255,0.85);
+    background: rgba(255,255,255,0.07);
+  }
+
+  .ide-statusbar {
+    height: 24px;
+    min-height: 24px;
+    display: flex;
+    align-items: center;
+    background: oklch(0.32 0.09 165);
+    color: rgba(255,255,255,0.85);
+    font-size: 11px;
+    padding: 0 8px;
+    gap: 0;
+    flex-shrink: 0;
+    user-select: none;
+  }
+
+  .ide-statusbar-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 8px;
+    height: 100%;
+    cursor: default;
+    white-space: nowrap;
+    transition: background 0.12s;
+  }
+
+  .ide-statusbar-item:hover {
+    background: rgba(0,0,0,0.15);
+    cursor: pointer;
+  }
+
+  .ide-statusbar-sep {
+    width: 1px;
+    height: 14px;
+    background: rgba(255,255,255,0.2);
+  }
+
+  .ide-right-panel {
+    width: 300px;
+    min-width: 300px;
+    display: flex;
+    flex-direction: column;
+    background: #141414;
+    border-left: 1px solid rgba(255,255,255,0.06);
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+
+  .ide-file-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px 3px 16px;
+    font-size: 12px;
+    cursor: pointer;
+    color: rgba(255,255,255,0.55);
+    border-left: 2px solid transparent;
+    transition: background 0.1s, color 0.1s;
+    user-select: none;
+  }
+
+  .ide-file-item:hover {
+    background: rgba(255,255,255,0.05);
+    color: rgba(255,255,255,0.8);
+  }
+
+  .ide-file-item:hover .file-delete-btn {
+    opacity: 1 !important;
+  }
+
+  .ide-file-item.active {
+    background: rgba(52,211,153,0.08);
+    color: oklch(0.78 0.09 165);
+    border-left-color: oklch(0.78 0.09 165);
+  }
+
+  /* Thin custom scrollbar for IDE panels */
+  .ide-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  .ide-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .ide-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+  }
+  .ide-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255,255,255,0.2);
+  }
 }
