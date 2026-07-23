@@ -88,7 +88,9 @@ class FileCreate(BaseModel):
 
 
 class FileSave(BaseModel):
-    content: str
+    content: str | None = None
+    filename: str | None = None
+    folder_path: str | None = None
 
 
 class FileResponse(BaseModel):
@@ -200,19 +202,37 @@ async def create_file(body: FileCreate, db: AsyncSession = Depends(get_db)):
 
 @app.put("/files/{file_id}", tags=["files"])
 async def save_file(file_id: str, body: FileSave, db: AsyncSession = Depends(get_db)):
-    """Save/update file content. Updates the updated_at timestamp."""
+    """Save/update file content, filename, or path. Updates language if filename changes."""
     result = await db.execute(select(File).where(File.id == file_id))
     file = result.scalar_one_or_none()
     if not file:
         raise HTTPException(status_code=404, detail="File not found")
 
+    updates: dict = {"updated_at": datetime.now(timezone.utc)}
+    if body.content is not None:
+        updates["content"] = body.content
+    if body.filename is not None and body.filename.strip():
+        new_name = body.filename.strip()
+        updates["filename"] = new_name
+        updates["language"] = detect_language(new_name)
+    if body.folder_path is not None:
+        updates["folder_path"] = body.folder_path
+
     await db.execute(
         update(File)
         .where(File.id == file_id)
-        .values(content=body.content, updated_at=datetime.now(timezone.utc))
+        .values(**updates)
     )
     await db.commit()
-    return {"success": True}
+
+    updated_filename = updates.get("filename", file.filename)
+    updated_lang = updates.get("language", file.language)
+    return {
+        "success": True,
+        "id": file_id,
+        "filename": updated_filename,
+        "language": updated_lang,
+    }
 
 
 @app.delete("/files/{file_id}", tags=["files"])

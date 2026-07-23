@@ -4,6 +4,10 @@ import { motion, AnimatePresence } from "motion/react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import Editor from "@monaco-editor/react"
+import { 
+  Folder, FolderOpen, FileText, Plus, Search, Edit3, Trash2, Copy, 
+  ChevronRight, ChevronDown, RefreshCw, Check, X, FilePlus, FolderPlus
+} from "lucide-react"
 import { GlassPanel } from "@/components/glass-panel"
 import { StudentCharacter, type Expression } from "@/components/student-character"
 import { DashboardThemeBox } from "@/components/dashboard-theme-box"
@@ -17,6 +21,7 @@ interface CodeFile {
   filename: string;
   language: string;
   content: string;
+  folder_path?: string;
 }
 
 type LogType = 'info' | 'success' | 'error' | 'hint' | 'warn';
@@ -86,7 +91,7 @@ function FileIcon({ filename }: { filename: string }) {
     jsx:  { label: 'JX', color: '#61dafb' },
     py:   { label: 'PY', color: '#3572a5' },
     java: { label: 'JV', color: '#b07219' },
-    c:    { label: 'C',  color: '#555555' },
+    c:    { label: 'C',  color: '#a0a0a0' },
     cpp:  { label: 'C+', color: '#f34b7d' },
     cs:   { label: 'C#', color: '#178600' },
     go:   { label: 'GO', color: '#00add8' },
@@ -95,20 +100,22 @@ function FileIcon({ filename }: { filename: string }) {
     php:  { label: 'PH', color: '#4f5d95' },
     lua:  { label: 'LU', color: '#000080' },
     sh:   { label: 'SH', color: '#89e051' },
+    bash: { label: 'SH', color: '#89e051' },
     sql:  { label: 'SQ', color: '#e38c00' },
     json: { label: '{}', color: '#fbc02d' },
     html: { label: '<>', color: '#e34c26' },
     css:  { label: 'CS', color: '#563d7c' },
+    md:   { label: 'MD', color: '#38bdf8' },
   }
   const { label, color } = map[ext] ?? { label: 'FILE', color: '#34d399' }
   return (
     <span
-      className="inline-flex items-center justify-center font-mono text-[9px] font-extrabold shrink-0 px-1 py-0.5 rounded"
+      className="inline-flex items-center justify-center font-mono text-[9px] font-extrabold shrink-0 px-1 py-0.5 rounded shadow-[0_0_8px_rgba(0,0,0,0.5)] select-none"
       style={{
         color,
-        backgroundColor: `${color}18`,
-        border: `1px solid ${color}30`,
-        minWidth: '20px',
+        backgroundColor: `${color}20`,
+        border: `1px solid ${color}40`,
+        minWidth: '22px',
         lineHeight: 1,
       }}
     >
@@ -118,66 +125,126 @@ function FileIcon({ filename }: { filename: string }) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Filename Modal Component                                           */
+/*  Create Item Modal Component (File & Folder)                       */
 /* ------------------------------------------------------------------ */
 
-function FilenameModal({ 
+function CreateItemModal({ 
   isOpen, 
+  initialMode = 'file',
+  targetFolder = '',
   onClose, 
-  onSubmit 
+  onSubmitFile,
+  onSubmitFolder,
 }: { 
   isOpen: boolean; 
+  initialMode?: 'file' | 'folder';
+  targetFolder?: string;
   onClose: () => void; 
-  onSubmit: (filename: string) => void;
+  onSubmitFile: (filename: string) => void;
+  onSubmitFolder: (foldername: string) => void;
 }) {
-  const [filename, setFilename] = useState("")
+  const [mode, setMode] = useState<'file' | 'folder'>('file')
+  const [name, setName] = useState("")
 
   useEffect(() => {
-    if (isOpen) setFilename("")
-  }, [isOpen])
+    if (isOpen) {
+      setName(targetFolder ? `${targetFolder}/` : "")
+      setMode(initialMode)
+    }
+  }, [isOpen, initialMode, targetFolder])
 
   if (!isOpen) return null
 
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    let trimmed = name.trim()
+    if (!trimmed) return
+    if (mode === 'file') {
+      if (targetFolder && !trimmed.startsWith(`${targetFolder}/`)) {
+        trimmed = `${targetFolder}/${trimmed}`
+      }
+      onSubmitFile(trimmed)
+    } else {
+      onSubmitFolder(trimmed)
+    }
+    onClose()
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-[320px] rounded-lg border border-primary/20 bg-neutral-950 p-4 shadow-[0_0_20px_rgba(52,211,153,0.1)]">
-        <h3 className="mb-4 font-mono text-xs uppercase tracking-widest text-primary">Enter Filename</h3>
+      <form 
+        onSubmit={handleFormSubmit}
+        className="w-[340px] rounded-xl border border-white/15 bg-neutral-950 p-4 shadow-2xl"
+      >
+        {/* Toggle file vs folder */}
+        <div className="mb-4 flex items-center gap-2 border-b border-white/10 pb-3">
+          <button
+            type="button"
+            onClick={() => setMode('file')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded font-mono text-xs font-semibold transition-all ${
+              mode === 'file'
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-[0_0_10px_rgba(52,211,153,0.2)]'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent'
+            }`}
+          >
+            <FilePlus className="w-3.5 h-3.5" />
+            <span>New File</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('folder')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded font-mono text-xs font-semibold transition-all ${
+              mode === 'folder'
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent'
+            }`}
+          >
+            <FolderPlus className="w-3.5 h-3.5" />
+            <span>New Folder</span>
+          </button>
+        </div>
+
+        <h3 className="mb-2.5 font-mono text-[11px] uppercase tracking-widest text-slate-300 font-bold">
+          {mode === 'file' ? 'Enter Filename' : 'Enter Folder Name'}
+        </h3>
+        
         <input
           autoFocus
           type="text"
-          value={filename}
-          onChange={(e) => setFilename(e.target.value)}
-          placeholder="e.g. script.py"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={mode === 'file' ? 'e.g. main.py, utils.ts' : 'e.g. components, utils'}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && filename.trim()) {
-              onSubmit(filename.trim());
-              onClose();
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              if (name.trim()) {
+                if (mode === 'file') onSubmitFile(name.trim())
+                else onSubmitFolder(name.trim())
+                onClose()
+              }
             } else if (e.key === 'Escape') {
-              onClose();
+              onClose()
             }
           }}
-          className="w-full rounded bg-black/50 px-3 py-2 font-mono text-sm text-foreground outline-none border border-white/10 focus:border-primary/50"
+          className="w-full rounded bg-black/60 px-3 py-2 font-mono text-xs text-foreground outline-none border border-white/10 focus:border-emerald-500/50"
         />
+
         <div className="mt-4 flex justify-end gap-2">
           <button 
+            type="button"
             onClick={onClose}
             className="rounded px-3 py-1.5 font-mono text-xs text-muted-foreground hover:bg-white/5"
           >
             CANCEL
           </button>
           <button 
-            onClick={() => {
-              if (filename.trim()) {
-                onSubmit(filename.trim())
-                onClose()
-              }
-            }}
-            className="rounded bg-primary/20 px-3 py-1.5 font-mono text-xs text-primary hover:bg-primary/30"
+            type="submit"
+            className="rounded bg-emerald-500/20 px-3.5 py-1.5 font-mono text-xs font-semibold text-emerald-300 hover:bg-emerald-500/30"
           >
             CREATE
           </button>
         </div>
-      </div>
+      </form>
     </div>
   )
 }
@@ -215,7 +282,34 @@ export default function DashboardPage() {
   const [files, setFiles] = useState<CodeFile[]>([])
   const [activeFileId, setActiveFileId] = useState<string>("")
   const [isLoading, setIsLoading] = useState(true)
-  const [isFilenameModalOpen, setIsFilenameModalOpen] = useState(false)
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [createModalMode, setCreateModalMode] = useState<'file' | 'folder'>('file')
+  const [targetFolderForModal, setTargetFolderForModal] = useState<string>('')
+
+  // Folders state
+  const [folders, setFolders] = useState<string[]>([])
+  const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
+  
+  // Workspace UI state
+  const [searchQuery, setSearchQuery] = useState("")
+  const [showSearch, setShowSearch] = useState(false)
+
+  // Inline rename state ("rewrite file name")
+  const [editingFileId, setEditingFileId] = useState<string | null>(null)
+  const [editingFilename, setEditingFilename] = useState("")
+  const editInputRef = useRef<HTMLInputElement>(null)
+
+  // Inline create state (Antigravity IDE style)
+  const [inlineCreateState, setInlineCreateState] = useState<{
+    isOpen: boolean
+    type: 'file' | 'folder'
+    folderContext?: string
+  }>({
+    isOpen: false,
+    type: 'file',
+  })
+  const [inlineCreateName, setInlineCreateName] = useState("")
+  const inlineInputRef = useRef<HTMLInputElement>(null)
   
   // Editor / Run state
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved')
@@ -328,6 +422,117 @@ export default function DashboardPage() {
     }, 1000);
   };
 
+  // Refresh file list handler
+  const handleRefreshFiles = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      const res = await fetch(`${API_BASE}/files`)
+      const data = await res.json()
+      setFiles(data)
+      addLog('info', '[KOGNIT] Workspace refreshed')
+    } catch (err) {
+      addLog('error', '[KOGNIT] Failed to refresh workspace')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [addLog])
+
+  // Start inline file rename ("rewrite file name")
+  const handleStartRename = (file: CodeFile, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation()
+    setEditingFileId(file.id)
+    setEditingFilename(file.filename)
+    setTimeout(() => editInputRef.current?.focus(), 50)
+  }
+
+  // Save inline file rename
+  const handleSaveRename = async (fileId: string) => {
+    const trimmed = editingFilename.trim()
+    if (!trimmed) {
+      setEditingFileId(null)
+      return
+    }
+    const current = files.find(f => f.id === fileId)
+    if (current && current.filename === trimmed) {
+      setEditingFileId(null)
+      return
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/files/${fileId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: trimmed })
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const data = await res.json()
+      
+      setFiles(prev => prev.map(f => f.id === fileId ? {
+        ...f,
+        filename: data.filename || trimmed,
+        language: data.language || f.language
+      } : f))
+      addLog('info', `[KOGNIT] Renamed file to: ${data.filename || trimmed}`)
+    } catch (err) {
+      console.error('Rename failed:', err)
+      addLog('error', `[KOGNIT] Failed to rename file: ${trimmed}`)
+    } finally {
+      setEditingFileId(null)
+    }
+  }
+
+  // Duplicate file handler
+  const handleDuplicateFile = async (file: CodeFile, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const parts = file.filename.split('.')
+    let dupName = ""
+    if (parts.length > 1) {
+      const ext = parts.pop()
+      dupName = `${parts.join('.')}_copy.${ext}`
+    } else {
+      dupName = `${file.filename}_copy`
+    }
+
+    try {
+      let fullContent = file.content ?? ""
+      if (!contentLoadedRef.current.has(file.id)) {
+        const fetchRes = await fetch(`${API_BASE}/files/${file.id}`)
+        if (fetchRes.ok) {
+          const detail = await fetchRes.json()
+          fullContent = detail.content ?? ""
+        }
+      }
+
+      const res = await fetch(`${API_BASE}/files`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: dupName,
+          folder_path: "/"
+        })
+      })
+      if (!res.ok) throw new Error(await res.text())
+      const newFile = await res.json()
+
+      if (fullContent) {
+        await fetch(`${API_BASE}/files/${newFile.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: fullContent })
+        })
+        newFile.content = fullContent
+      }
+
+      contentLoadedRef.current.add(newFile.id)
+      setFiles(prev => [...prev, newFile])
+      setActiveFileId(newFile.id)
+      addLog('success', `[KOGNIT] Duplicated file: ${dupName}`)
+    } catch (err) {
+      console.error('Duplicate failed:', err)
+      addLog('error', `[KOGNIT] Failed to duplicate file`)
+    }
+  }
+
   // 3. Delete File Handler
   const handleDeleteFile = useCallback(async (fileId: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -368,11 +573,92 @@ export default function DashboardPage() {
       contentLoadedRef.current.add(newFile.id)
       setFiles(prev => [...prev, newFile]);
       setActiveFileId(newFile.id);
+      addLog('success', `[KOGNIT] Created new file: ${newFilename}`);
     } catch (err) {
       console.error('Create failed:', err);
       addLog('error', `[KOGNIT] Failed to create file: ${newFilename}`);
     }
   };
+
+  // Create Folder Handler
+  const handleCreateFolder = (foldername: string) => {
+    const cleanName = foldername.trim().replace(/^\/+|\/+$/g, '')
+    if (!cleanName) return
+    if (!folders.includes(cleanName)) {
+      setFolders(prev => [...prev, cleanName])
+      addLog('success', `[KOGNIT] Created folder: ${cleanName}`)
+    }
+  }
+
+  // Delete Folder Handler (Cascade deletes all files inside this folder)
+  const handleDeleteFolder = async (foldername: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const folderFiles = files.filter(f => 
+      f.filename.startsWith(`${foldername}/`) || f.folder_path === `/${foldername}` || f.folder_path === foldername
+    )
+
+    try {
+      if (folderFiles.length > 0) {
+        await Promise.all(
+          folderFiles.map(file => fetch(`${API_BASE}/files/${file.id}`, { method: 'DELETE' }))
+        )
+        folderFiles.forEach(file => contentLoadedRef.current.delete(file.id))
+        const folderFileIds = new Set(folderFiles.map(f => f.id))
+        setFiles(prev => {
+          const remaining = prev.filter(f => !folderFileIds.has(f.id))
+          if (folderFileIds.has(activeFileId)) {
+            setActiveFileId(remaining.length > 0 ? remaining[0].id : '')
+          }
+          return remaining
+        })
+      }
+      setFolders(prev => prev.filter(f => f !== foldername))
+      addLog('warn', `[KOGNIT] Deleted folder '${foldername}' and ${folderFiles.length} file(s) inside it`)
+    } catch (err) {
+      console.error('Delete folder failed:', err)
+      addLog('error', `[KOGNIT] Failed to delete folder '${foldername}'`)
+    }
+  }
+
+  // Toggle Folder Collapse Handler
+  const toggleFolderCollapse = (foldername: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation()
+    setCollapsedFolders(prev => ({
+      ...prev,
+      [foldername]: !prev[foldername]
+    }))
+  }
+
+  // Antigravity style inline creation triggers
+  const startInlineCreate = (type: 'file' | 'folder', folderContext?: string) => {
+    setInlineCreateState({ isOpen: true, type, folderContext })
+    setInlineCreateName('')
+    if (folderContext) {
+      setCollapsedFolders(prev => ({ ...prev, [folderContext]: false }))
+    }
+    setTimeout(() => inlineInputRef.current?.focus(), 50)
+  }
+
+  const handleInlineCreateSubmit = async () => {
+    const trimmed = inlineCreateName.trim()
+    if (!trimmed) {
+      setInlineCreateState({ isOpen: false, type: 'file' })
+      return
+    }
+
+    if (inlineCreateState.type === 'folder') {
+      handleCreateFolder(trimmed)
+    } else {
+      let finalFilename = trimmed
+      if (inlineCreateState.folderContext && !trimmed.startsWith(`${inlineCreateState.folderContext}/`)) {
+        finalFilename = `${inlineCreateState.folderContext}/${trimmed}`
+      }
+      await handleCreateFile(finalFilename)
+    }
+
+    setInlineCreateName('')
+    setInlineCreateState({ isOpen: false, type: 'file' })
+  }
 
   // 5. Run Code Handler
   const handleRunCode = async () => {
@@ -449,13 +735,20 @@ export default function DashboardPage() {
   const canRun = activeFile ? RUNNABLE_LANGUAGES.has(activeFile.language.toLowerCase()) : false
   const contentReady = activeFileId ? contentLoadedRef.current.has(activeFileId) : false
 
+  const filteredFiles = files.filter(f => 
+    f.filename.toLowerCase().includes(searchQuery.toLowerCase())
+  )
+
   return (
     <main className="relative z-10 min-h-screen px-4 py-6 sm:px-6">
-      {/* Filename Modal */}
-      <FilenameModal
-        isOpen={isFilenameModalOpen}
-        onClose={() => setIsFilenameModalOpen(false)}
-        onSubmit={handleCreateFile}
+      {/* Create Item Modal (File & Folder) */}
+      <CreateItemModal
+        isOpen={isCreateModalOpen}
+        initialMode={createModalMode}
+        targetFolder={targetFolderForModal}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSubmitFile={handleCreateFile}
+        onSubmitFolder={handleCreateFolder}
       />
 
       {/* Top navigation bar */}
@@ -523,63 +816,466 @@ export default function DashboardPage() {
         {/* ---- LEFT: IDE-Style File Explorer & Telemetry ---- */}
         <div className="flex flex-col gap-4">
           
-          <GlassPanel label="explorer" className="flex-1 min-h-[400px]">
-            <div className="pt-8 pb-4 px-3 flex flex-col gap-3">
+          <GlassPanel className="flex-1 min-h-[440px]">
+            <div className="p-3 pt-4 flex flex-col gap-3">
               {/* Explorer Header */}
-              <div className="flex items-center justify-between px-1 pb-2 border-b border-white/5">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-bold">KOGNIT_WORKSPACE</span>
+              <div className="flex flex-col gap-2 pb-2.5 border-b border-white/10">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="font-mono text-[11px] uppercase tracking-wider text-slate-200 font-bold whitespace-nowrap">
+                      KOGNIT_WORKSPACE
+                    </span>
+                    <span className="font-mono text-[10px] text-muted-foreground/60 shrink-0">
+                      ({files.length})
+                    </span>
+                  </div>
+
+                  {/* Antigravity IDE style New File & New Folder action buttons */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => setShowSearch(!showSearch)}
+                      className={`p-1 transition-colors ${
+                        showSearch || searchQuery ? 'text-emerald-400' : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                      title="Toggle Search Filter"
+                    >
+                      <Search className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={handleRefreshFiles}
+                      className="p-1 text-slate-400 hover:text-slate-200 transition-colors"
+                      title="Refresh Files"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                    </button>
+                    
+                    {/* New File Button */}
+                    <button
+                      onClick={() => startInlineCreate('file')}
+                      className="p-1 text-emerald-400 hover:text-emerald-300 transition-colors"
+                      title="New File"
+                    >
+                      <FilePlus className="w-3.5 h-3.5" />
+                    </button>
+
+                    {/* New Folder Button */}
+                    <button
+                      onClick={() => startInlineCreate('folder')}
+                      className="p-1 text-amber-400 hover:text-amber-300 transition-colors"
+                      title="New Folder"
+                    >
+                      <FolderPlus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
-                <button 
-                  onClick={() => setIsFilenameModalOpen(true)}
-                  className="flex items-center gap-1 font-mono text-[10px] uppercase text-emerald-400/90 hover:text-emerald-300 transition-colors font-bold tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30"
-                  title="Create new file"
-                >
-                  <span>+</span> New
-                </button>
+
+                {/* Search Input Bar */}
+                <AnimatePresence>
+                  {(showSearch || searchQuery) && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="relative mt-1">
+                        <Search className="absolute left-2.5 top-2 w-3 h-3 text-slate-400" />
+                        <input
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder="Filter files..."
+                          className="w-full pl-7 pr-7 py-1 rounded bg-black/60 border border-white/10 font-mono text-[11px] text-slate-200 placeholder:text-slate-500 outline-none focus:border-white/20 transition-colors"
+                        />
+                        {searchQuery && (
+                          <button
+                            onClick={() => setSearchQuery("")}
+                            className="absolute right-2 top-2 text-slate-400 hover:text-white"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
-              {/* Tree View Item List */}
+              {/* Workspace File & Folder Item List */}
               <div className="flex flex-col gap-1">
-                {isLoading ? (
-                  <span className="font-mono text-[11px] text-muted-foreground/40 animate-pulse px-2">
-                    Loading workspace files...
-                  </span>
-                ) : files.length === 0 ? (
-                  <span className="font-mono text-[11px] text-muted-foreground/30 px-2">
-                    No files found — click + New to create
-                  </span>
-                ) : (
-                  files.map(file => (
-                    <div
-                      key={file.id}
-                      className={`group flex items-center justify-between px-2.5 py-1.5 rounded-md transition-all font-mono text-[11px] cursor-pointer ${
-                        activeFileId === file.id
-                          ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shadow-[0_0_12px_rgba(52,211,153,0.15)] font-semibold'
-                          : 'text-slate-300/70 hover:text-slate-100 hover:bg-white/5 border border-transparent'
+                {/* Antigravity Style Inline Root Creation Row */}
+                <AnimatePresence>
+                  {inlineCreateState.isOpen && !inlineCreateState.folderContext && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      className={`flex items-center gap-2 px-2.5 py-1.5 rounded font-mono text-[11px] ${
+                        inlineCreateState.type === 'folder'
+                          ? 'bg-amber-500/10 border border-amber-500/40'
+                          : 'bg-emerald-500/10 border border-emerald-500/40'
                       }`}
-                      onClick={() => setActiveFileId(file.id)}
                     >
-                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                        <FileIcon filename={file.filename} />
-                        <span className="truncate">{file.filename}</span>
+                      {inlineCreateState.type === 'folder' ? (
+                        <Folder className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      ) : (
+                        <FileText className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      )}
+                      <input
+                        ref={inlineInputRef}
+                        type="text"
+                        value={inlineCreateName}
+                        onChange={(e) => setInlineCreateName(e.target.value)}
+                        placeholder={inlineCreateState.type === 'folder' ? 'folder_name...' : 'filename.ext...'}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleInlineCreateSubmit();
+                          } else if (e.key === 'Escape') {
+                            setInlineCreateState({ isOpen: false, type: 'file' });
+                          }
+                        }}
+                        className="w-full bg-black/80 font-mono text-[11px] text-slate-100 outline-none px-1.5 py-0.5 rounded border border-white/10"
+                      />
+                      <button
+                        onClick={handleInlineCreateSubmit}
+                        className={`p-1 shrink-0 ${inlineCreateState.type === 'folder' ? 'text-amber-400 hover:text-amber-200' : 'text-emerald-400 hover:text-emerald-200'}`}
+                        title="Create"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setInlineCreateState({ isOpen: false, type: 'file' })}
+                        className="p-1 text-slate-400 hover:text-white shrink-0"
+                        title="Cancel"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Render Custom Folders */}
+                {folders.map(foldername => {
+                  const isCollapsed = collapsedFolders[foldername]
+                  const folderFiles = filteredFiles.filter(f => 
+                    f.filename.startsWith(`${foldername}/`) || f.folder_path === `/${foldername}` || f.folder_path === foldername
+                  )
+
+                  return (
+                    <div key={foldername} className="flex flex-col gap-1">
+                      <div 
+                        onClick={(e) => toggleFolderCollapse(foldername, e)}
+                        className="group flex items-center justify-between px-2 py-1.5 rounded text-slate-300 hover:text-white hover:bg-white/5 cursor-pointer font-mono text-[11px] select-none"
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          {isCollapsed ? (
+                            <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          ) : (
+                            <ChevronDown className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          )}
+                          {isCollapsed ? (
+                            <Folder className="w-3.5 h-3.5 text-amber-400/80 shrink-0" />
+                          ) : (
+                            <FolderOpen className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          )}
+                          <span className="font-semibold text-slate-200 truncate">{foldername}</span>
+                          <span className="text-[10px] text-slate-500">({folderFiles.length})</span>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              startInlineCreate('file', foldername)
+                            }}
+                            title={`New File in ${foldername}`}
+                            className="hidden group-hover:flex p-1 text-slate-400 hover:text-emerald-300"
+                          >
+                            <FilePlus className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={(e) => handleDeleteFolder(foldername, e)}
+                            title={`Delete folder and all files inside`}
+                            className="hidden group-hover:flex p-1 text-slate-400 hover:text-rose-300"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
                       </div>
-                      
-                      <div className="flex items-center gap-1">
-                        {activeFileId === file.id && (
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399] shrink-0" />
-                        )}
-                        <button
-                          onClick={(e) => handleDeleteFile(file.id, e)}
-                          title={`Delete ${file.filename}`}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 text-rose-400/70 hover:text-rose-300 hover:bg-rose-500/20 rounded px-1.5 py-0.5 font-mono text-[10px] leading-none shrink-0"
-                        >
-                          ✕
-                        </button>
-                      </div>
+
+                      {/* Indented folder files */}
+                      {!isCollapsed && (
+                        <div className="flex flex-col gap-1 pl-3 border-l border-white/5 ml-2">
+                          {/* Inline creation inside folder */}
+                          <AnimatePresence>
+                            {inlineCreateState.isOpen && inlineCreateState.type === 'file' && inlineCreateState.folderContext === foldername && (
+                              <motion.div
+                                initial={{ opacity: 0, y: -4 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -4 }}
+                                className="flex items-center gap-2 px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/40 font-mono text-[11px]"
+                              >
+                                <FileText className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                <input
+                                  ref={inlineInputRef}
+                                  type="text"
+                                  value={inlineCreateName}
+                                  onChange={(e) => setInlineCreateName(e.target.value)}
+                                  placeholder="filename.ext..."
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      handleInlineCreateSubmit();
+                                    } else if (e.key === 'Escape') {
+                                      setInlineCreateState({ isOpen: false, type: 'file' });
+                                    }
+                                  }}
+                                  className="w-full bg-black/80 font-mono text-[11px] text-emerald-200 outline-none px-1.5 py-0.5 rounded border border-emerald-500/30"
+                                />
+                                <button
+                                  onClick={handleInlineCreateSubmit}
+                                  className="p-1 text-emerald-400 hover:text-emerald-200 shrink-0"
+                                  title="Create file in folder"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => setInlineCreateState({ isOpen: false, type: 'file' })}
+                                  className="p-1 text-slate-400 hover:text-white shrink-0"
+                                  title="Cancel"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                          {folderFiles.length === 0 ? (
+                            <span className="font-mono text-[10px] text-slate-500/70 italic px-2 py-0.5">Empty folder</span>
+                          ) : (
+                            folderFiles.map(file => {
+                              const isActive = activeFileId === file.id
+                              const isEditing = editingFileId === file.id
+                              const displayName = file.filename.startsWith(`${foldername}/`) 
+                                ? file.filename.slice(foldername.length + 1)
+                                : file.filename
+
+                              return (
+                                <div
+                                  key={file.id}
+                                  className={`group relative flex items-center justify-between px-2.5 py-1.5 rounded-md transition-all font-mono text-[11px] cursor-pointer select-none ${
+                                    isActive
+                                      ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold shadow-[0_0_12px_rgba(52,211,153,0.12)]'
+                                      : 'text-slate-300/80 hover:text-slate-100 hover:bg-white/5 border border-transparent'
+                                  }`}
+                                  onClick={() => {
+                                    if (!isEditing) setActiveFileId(file.id)
+                                  }}
+                                  onDoubleClick={(e) => handleStartRename(file, e)}
+                                  title="Double click to rewrite filename"
+                                >
+                                  <div className="flex items-center gap-2 min-w-0 flex-1 pr-1">
+                                    <FileIcon filename={file.filename} />
+                                    
+                                    {isEditing ? (
+                                      <div className="flex items-center gap-1 flex-1" onClick={(e) => e.stopPropagation()}>
+                                        <input
+                                          ref={editInputRef}
+                                          type="text"
+                                          value={editingFilename}
+                                          onChange={(e) => setEditingFilename(e.target.value)}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              e.preventDefault();
+                                              handleSaveRename(file.id);
+                                            } else if (e.key === 'Escape') {
+                                              setEditingFileId(null);
+                                            }
+                                          }}
+                                          className="w-full bg-black/90 font-mono text-[11px] text-emerald-200 outline-none px-1.5 py-0.5 rounded border border-emerald-400/50"
+                                        />
+                                        <button
+                                          onClick={() => handleSaveRename(file.id)}
+                                          className="p-1 text-emerald-400 hover:text-emerald-200 shrink-0"
+                                          title="Save filename"
+                                        >
+                                          <Check className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button
+                                          onClick={() => setEditingFileId(null)}
+                                          className="p-1 text-slate-400 hover:text-white shrink-0"
+                                          title="Cancel"
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <span className="truncate tracking-wide">{displayName}</span>
+                                    )}
+                                  </div>
+
+                                  {!isEditing && (
+                                    <div className="flex items-center gap-1 shrink-0 ml-auto">
+                                      <button
+                                        onClick={(e) => handleStartRename(file, e)}
+                                        title="Rewrite filename"
+                                        className="hidden group-hover:flex transition-all duration-150 text-slate-400 hover:text-emerald-300 hover:bg-emerald-500/20 p-1 rounded font-mono shrink-0"
+                                      >
+                                        <Edit3 className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        onClick={(e) => handleDuplicateFile(file, e)}
+                                        title="Duplicate file"
+                                        className="hidden group-hover:flex transition-all duration-150 text-slate-400 hover:text-sky-300 hover:bg-sky-500/20 p-1 rounded font-mono shrink-0"
+                                      >
+                                        <Copy className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        onClick={(e) => handleDeleteFile(file.id, e)}
+                                        title={`Delete ${file.filename}`}
+                                        className="hidden group-hover:flex transition-all duration-150 text-rose-400/80 hover:text-rose-300 hover:bg-rose-500/20 p-1 rounded font-mono shrink-0"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+
+                                      {isActive && (
+                                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] shrink-0 ml-1.5" />
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })
+                          )}
+                        </div>
+                      )}
                     </div>
-                  ))
-                )}
+                  )
+                })}
+
+                {/* Render Root Files (Files not inside any folder) */}
+                {(() => {
+                  const rootFiles = filteredFiles.filter(f => 
+                    !folders.some(folder => 
+                      f.filename.startsWith(`${folder}/`) || f.folder_path === `/${folder}` || f.folder_path === folder
+                    )
+                  )
+
+                  if (isLoading) {
+                    return (
+                      <span className="font-mono text-[11px] text-muted-foreground/40 animate-pulse px-2 py-1">
+                        Loading workspace files...
+                      </span>
+                    )
+                  }
+
+                  if (rootFiles.length === 0 && folders.length === 0) {
+                    return (
+                      <span className="font-mono text-[11px] text-muted-foreground/40 px-2 py-1 italic">
+                        {searchQuery ? "No files matching filter" : "No files found — click + New File or + Folder"}
+                      </span>
+                    )
+                  }
+
+                  return rootFiles.map(file => {
+                    const isActive = activeFileId === file.id
+                    const isEditing = editingFileId === file.id
+
+                    return (
+                      <div
+                        key={file.id}
+                        className={`group relative flex items-center justify-between px-2.5 py-1.5 rounded-md transition-all font-mono text-[11px] cursor-pointer select-none ${
+                          isActive
+                            ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold shadow-[0_0_12px_rgba(52,211,153,0.12)]'
+                            : 'text-slate-300/80 hover:text-slate-100 hover:bg-white/5 border border-transparent'
+                        }`}
+                        onClick={() => {
+                          if (!isEditing) setActiveFileId(file.id)
+                        }}
+                        onDoubleClick={(e) => handleStartRename(file, e)}
+                        title="Double click to rewrite filename"
+                      >
+                        {/* File icon + name OR inline input */}
+                        <div className="flex items-center gap-2 min-w-0 flex-1 pr-1">
+                          <FileIcon filename={file.filename} />
+                          
+                          {isEditing ? (
+                            <div className="flex items-center gap-1 flex-1" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                ref={editInputRef}
+                                type="text"
+                                value={editingFilename}
+                                onChange={(e) => setEditingFilename(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleSaveRename(file.id);
+                                  } else if (e.key === 'Escape') {
+                                    setEditingFileId(null);
+                                  }
+                                }}
+                                className="w-full bg-black/90 font-mono text-[11px] text-emerald-200 outline-none px-1.5 py-0.5 rounded border border-emerald-400/50"
+                              />
+                              <button
+                                onClick={() => handleSaveRename(file.id)}
+                                className="p-1 text-emerald-400 hover:text-emerald-200 shrink-0"
+                                title="Save filename"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => setEditingFileId(null)}
+                                className="p-1 text-slate-400 hover:text-white shrink-0"
+                                title="Cancel"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="truncate tracking-wide">{file.filename}</span>
+                          )}
+                        </div>
+                        
+                        {/* Quick Action buttons on hover & Active Light Dot at far right */}
+                        {!isEditing && (
+                          <div className="flex items-center gap-1 shrink-0 ml-auto">
+                            {/* Rewrite / Rename button */}
+                            <button
+                              onClick={(e) => handleStartRename(file, e)}
+                              title="Rewrite filename"
+                              className="hidden group-hover:flex transition-all duration-150 text-slate-400 hover:text-emerald-300 hover:bg-emerald-500/20 p-1 rounded font-mono shrink-0"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                            </button>
+
+                            {/* Duplicate button */}
+                            <button
+                              onClick={(e) => handleDuplicateFile(file, e)}
+                              title="Duplicate file"
+                              className="hidden group-hover:flex transition-all duration-150 text-slate-400 hover:text-sky-300 hover:bg-sky-500/20 p-1 rounded font-mono shrink-0"
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+
+                            {/* Delete button */}
+                            <button
+                              onClick={(e) => handleDeleteFile(file.id, e)}
+                              title={`Delete ${file.filename}`}
+                              className="hidden group-hover:flex transition-all duration-150 text-rose-400/80 hover:text-rose-300 hover:bg-rose-500/20 p-1 rounded font-mono shrink-0"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+
+                            {/* Active Light Dot at the absolute far right */}
+                            {isActive && (
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] shrink-0 ml-1.5" />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })
+                })()}
               </div>
             </div>
           </GlassPanel>
