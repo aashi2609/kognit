@@ -20,6 +20,8 @@ export function useKognitTutor() {
   const analyserRef = useRef<AnalyserNode | null>(null)
   const vadFrameRef = useRef<number>(0)
 
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Generate a stable session ID
   useEffect(() => {
     sessionIdRef.current = `session_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
@@ -27,46 +29,63 @@ export function useKognitTutor() {
 
   // Connect WebSocket
   const connectWs = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return
+    if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING) return
 
-    const ws = new WebSocket(`${WS_BASE}/ws/${sessionIdRef.current}`)
-    wsRef.current = ws
-
-    ws.onopen = () => {
-      console.log('[KOGNIT] WS connected')
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
     }
 
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
+    try {
+      const ws = new WebSocket(`${WS_BASE}/ws/${sessionIdRef.current}`)
+      wsRef.current = ws
 
-        if (data.type === 'ai_state') {
-          setAiState(data.state as AiState)
-        }
-
-        if (data.type === 'ai_response') {
-          setAiText(data.text)
-        }
-
-        if (data.type === 'user_transcript') {
-          setUserTranscript(data.text)
-        }
-
-        if (data.type === 'audio_out' && data.audio) {
-          playAudioBase64(data.audio, data.format || 'mp3')
-        }
-      } catch (e) {
-        console.error('[KOGNIT] WS parse error:', e)
+      ws.onopen = () => {
+        console.log('[KOGNIT] WS connected')
       }
-    }
 
-    ws.onclose = () => {
-      console.log('[KOGNIT] WS disconnected, reconnecting in 3s...')
-      setTimeout(connectWs, 3000)
-    }
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
 
-    ws.onerror = (err) => {
-      console.error('[KOGNIT] WS error:', err)
+          if (data.type === 'ai_state') {
+            setAiState(data.state as AiState)
+          }
+
+          if (data.type === 'ai_response') {
+            setAiText(data.text)
+            // Trigger native browser SpeechSynthesis immediately as fallback
+            speakTextFallback(data.text)
+          }
+
+          if (data.type === 'user_transcript') {
+            setUserTranscript(data.text)
+          }
+
+          if (data.type === 'audio_out' && data.audio) {
+            playAudioBase64(data.audio, data.format || 'mp3')
+          }
+        } catch (e) {
+          console.warn('[KOGNIT] WS parse error:', e)
+        }
+      }
+
+      ws.onclose = () => {
+        wsRef.current = null
+        console.log('[KOGNIT] WS disconnected, reconnecting in 3s...')
+        if (!reconnectTimerRef.current) {
+          reconnectTimerRef.current = setTimeout(connectWs, 3000)
+        }
+      }
+
+      ws.onerror = (err) => {
+        console.warn('[KOGNIT] WS connection attempting reconnect...')
+      }
+    } catch (e) {
+      console.warn('[KOGNIT] WS init exception:', e)
+      if (!reconnectTimerRef.current) {
+        reconnectTimerRef.current = setTimeout(connectWs, 3000)
+      }
     }
   }, [])
 
@@ -74,7 +93,12 @@ export function useKognitTutor() {
   useEffect(() => {
     connectWs()
     return () => {
-      wsRef.current?.close()
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
+      if (wsRef.current) {
+        wsRef.current.onclose = null
+        wsRef.current.close()
+        wsRef.current = null
+      }
     }
   }, [connectWs])
 
@@ -96,9 +120,28 @@ export function useKognitTutor() {
     }
   }, [])
 
-  // Play base64-encoded audio
+  // Fallback Web Speech API speaker
+  const speakTextFallback = useCallback((text: string) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
+    try {
+      window.speechSynthesis.cancel() // Stop previous speech
+      const utterance = new SpeechSynthesisUtterance(text)
+      utterance.rate = 1.0
+      utterance.pitch = 1.0
+      window.speechSynthesis.speak(utterance)
+    } catch (e) {
+      console.warn('[KOGNIT] Web Speech API fallback error:', e)
+    }
+  }, [])
+
+  // Play base64-encoded audio (ElevenLabs) or fallback to Web Speech API
   const playAudioBase64 = useCallback((b64: string, format: string) => {
     try {
+      // Cancel fallback speech if ElevenLabs audio arrived
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel()
+      }
+
       const binary = atob(b64)
       const bytes = new Uint8Array(binary.length)
       for (let i = 0; i < binary.length; i++) {
@@ -107,16 +150,41 @@ export function useKognitTutor() {
       const blob = new Blob([bytes], { type: `audio/${format}` })
       const url = URL.createObjectURL(blob)
       const audio = new Audio(url)
+      
       audio.onended = () => URL.revokeObjectURL(url)
-      audio.play().catch(e => console.error('[KOGNIT] Audio play error:', e))
+      
+      const playPromise = audio.play()
+      if (playPromise !== undefined) {
+        playPromise.catch((e) => {
+          console.warn('[KOGNIT] Browser autoplay restriction encountered. Attempting unlock on click...', e)
+          const unlock = () => {
+            audio.play().catch(() => {})
+            window.removeEventListener('click', unlock)
+            window.removeEventListener('keydown', unlock)
+          }
+          window.addEventListener('click', unlock, { once: true })
+          window.addEventListener('keydown', unlock, { once: true })
+        })
+      }
     } catch (e) {
       console.error('[KOGNIT] Audio decode error:', e)
     }
   }, [])
 
-  // Start microphone with VAD (Voice Activity Detection)
+  // Helper: Get supported audio recording MIME type for cross-browser support
+  const getSupportedMimeType = useCallback(() => {
+    if (typeof MediaRecorder === 'undefined') return ''
+    const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']
+    for (const t of types) {
+      if (MediaRecorder.isTypeSupported(t)) return t
+    }
+    return ''
+  }, [])
+
+  // Start microphone with adaptive recording + VAD
   const startMic = useCallback(async () => {
     try {
+      // 1. Request microphone permission
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaStreamRef.current = stream
 
@@ -131,59 +199,62 @@ export function useKognitTutor() {
       analyserRef.current = analyser
 
       setIsMicActive(true)
+      setAiState('listening')
 
-      // VAD loop — detect speech via volume threshold
-      let isRecording = false
-      let recorder: MediaRecorder | null = null
+      // 2. Continuous Recording Setup
+      const mimeType = getSupportedMimeType()
       let chunks: Blob[] = []
+      let recorder: MediaRecorder | null = null
 
-      const SILENCE_THRESHOLD = 0.015
-      const SILENCE_DURATION = 1500 // ms of silence before ending
-      const MIN_RECORDING_MS = 500
+      const createRecorder = () => {
+        chunks = []
+        try {
+          recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+        } catch {
+          recorder = new MediaRecorder(stream)
+        }
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) chunks.push(e.data)
+        }
+        recorder.onstop = () => {
+          if (chunks.length > 0) {
+            const blob = new Blob(chunks, { type: mimeType || 'audio/webm' })
+            sendAudioChunk(blob)
+          }
+        }
+        recorder.start()
+        mediaRecorderRef.current = recorder
+      }
 
+      // Start recording immediately when mic is enabled
+      createRecorder()
+
+      // 3. Adaptive VAD threshold checking
+      const SILENCE_THRESHOLD = 0.003 // Lower threshold to support quiet microphones
+      const SILENCE_DURATION = 1200   // 1.2s silence triggers flush of spoken phrase
       const dataArray = new Float32Array(analyser.fftSize)
-      let recordingStartTime = 0
+      let speakingDetected = false
 
       const checkVAD = () => {
         if (!analyserRef.current) return
         analyserRef.current.getFloatTimeDomainData(dataArray)
 
-        // Compute RMS volume
         let sum = 0
         for (let i = 0; i < dataArray.length; i++) {
           sum += dataArray[i] * dataArray[i]
         }
         const rms = Math.sqrt(sum / dataArray.length)
 
-        if (rms > SILENCE_THRESHOLD && !isRecording) {
-          // Speech detected — start recording
-          isRecording = true
-          chunks = []
-          recordingStartTime = Date.now()
-          recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
-          recorder.ondataavailable = (e) => {
-            if (e.data.size > 0) chunks.push(e.data)
-          }
-          recorder.onstop = () => {
-            if (chunks.length > 0 && Date.now() - recordingStartTime > MIN_RECORDING_MS) {
-              const blob = new Blob(chunks, { type: 'audio/webm' })
-              sendAudioChunk(blob)
-            }
-            isRecording = false
-          }
-          recorder.start()
-          mediaRecorderRef.current = recorder
-
+        if (rms > SILENCE_THRESHOLD) {
+          speakingDetected = true
           if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
-        }
-
-        if (rms > SILENCE_THRESHOLD && isRecording) {
-          // Still speaking — reset silence timer
-          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
+          
           silenceTimerRef.current = setTimeout(() => {
-            // Silence detected — stop recording
-            if (recorder && recorder.state === 'recording') {
-              recorder.stop()
+            // Speech segment finished — flush current chunk & restart recorder for next phrase
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording' && speakingDetected) {
+              speakingDetected = false
+              mediaRecorderRef.current.stop()
+              createRecorder()
             }
           }, SILENCE_DURATION)
         }
@@ -193,37 +264,73 @@ export function useKognitTutor() {
 
       vadFrameRef.current = requestAnimationFrame(checkVAD)
     } catch (e) {
-      console.error('[KOGNIT] Microphone error:', e)
+      console.error('[KOGNIT] Microphone permission / initialization error:', e)
+      setIsMicActive(false)
+      setAiState('idle')
     }
-  }, [])
+  }, [getSupportedMimeType])
 
-  // Stop microphone
+  // Stop microphone & flush recorded speech
   const stopMic = useCallback(() => {
     if (vadFrameRef.current) cancelAnimationFrame(vadFrameRef.current)
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
-    if (mediaRecorderRef.current?.state === 'recording') {
-      mediaRecorderRef.current.stop()
+
+    // Flush current recording on mic stop
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      try {
+        mediaRecorderRef.current.stop()
+      } catch (e) {
+        console.warn('[KOGNIT] Error stopping media recorder:', e)
+      }
     }
-    mediaStreamRef.current?.getTracks().forEach(t => t.stop())
-    audioContextRef.current?.close()
+
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(t => t.stop())
+      mediaStreamRef.current = null
+    }
+
+    if (audioContextRef.current) {
+      if (audioContextRef.current.state !== 'closed') {
+        try {
+          audioContextRef.current.close().catch(() => {})
+        } catch (e) {
+          // AudioContext already closed
+        }
+      }
+      audioContextRef.current = null
+    }
+
     analyserRef.current = null
+    mediaRecorderRef.current = null
     setIsMicActive(false)
+    setAiState('idle')
   }, [])
 
-  // Send recorded audio chunk to backend
+  // Send recorded audio chunk to backend via WebSocket
   const sendAudioChunk = useCallback(async (blob: Blob) => {
+    if (!blob || blob.size < 200) return
     if (wsRef.current?.readyState !== WebSocket.OPEN) return
     
-    const buffer = await blob.arrayBuffer()
-    const b64 = btoa(
-      new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
-    )
+    try {
+      setAiState('thinking')
+      const buffer = await blob.arrayBuffer()
+      const bytes = new Uint8Array(buffer)
+      let binary = ''
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i])
+      }
+      const b64 = btoa(binary)
 
-    wsRef.current.send(JSON.stringify({
-      type: 'audio_in',
-      audio: b64,
-      format: 'webm',
-    }))
+      const format = blob.type.includes('mp4') ? 'mp4' : blob.type.includes('ogg') ? 'ogg' : 'webm'
+
+      wsRef.current.send(JSON.stringify({
+        type: 'audio_in',
+        audio: b64,
+        format,
+      }))
+    } catch (e) {
+      console.error('[KOGNIT] Error encoding/sending audio chunk:', e)
+    }
   }, [])
 
   // Cleanup on unmount

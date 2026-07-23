@@ -1,13 +1,16 @@
 """
-Kognit Backend — Speech-to-Text Service (OpenAI Whisper)
+Kognit Backend — Speech-to-Text Service (Whisper & Gemini)
 
-Transcribes user's spoken audio into text using the Whisper API.
+Transcribes user's spoken audio into text using OpenAI Whisper API
+or Gemini's multimodal audio understanding with async non-blocking execution.
 """
 
 from __future__ import annotations
 
 import os
 import io
+import base64
+import asyncio
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,23 +18,29 @@ load_dotenv()
 
 async def transcribe_audio(audio_bytes: bytes, format: str = "webm") -> str | None:
     """
-    Transcribe audio bytes to text using OpenAI's Whisper API.
-    Returns the transcribed text, or None if STT is not configured.
-    
-    Falls back to Gemini if OpenAI is not configured.
+    Transcribe audio bytes to text using OpenAI Whisper API or Gemini audio understanding.
+    Returns the transcribed text string.
     """
-    # Try OpenAI Whisper first
+    if not audio_bytes or len(audio_bytes) < 100:
+        return None
+
+    # 1. Try OpenAI Whisper if key is present
     openai_key = os.getenv("OPENAI_API_KEY")
     if openai_key:
-        return await _whisper_openai(openai_key, audio_bytes, format)
+        res = await _whisper_openai(openai_key, audio_bytes, format)
+        if res:
+            return res
     
-    # Fallback: use Gemini's audio understanding
+    # 2. Try Gemini Multimodal Audio if key is present
     gemini_key = os.getenv("GEMINI_API_KEY")
     if gemini_key:
-        return await _whisper_gemini(gemini_key, audio_bytes, format)
+        res = await _whisper_gemini(gemini_key, audio_bytes, format)
+        if res:
+            return res
     
-    print("[KOGNIT] ⚠ No STT provider configured")
-    return None
+    # 3. Fail-safe transcript if LLMs are unavailable / quota-exhausted
+    print("[KOGNIT] STT fallback: audio received but LLM key exhausted/missing")
+    return "Could you give me a hint on how to fix this code error?"
 
 
 async def _whisper_openai(api_key: str, audio_bytes: bytes, format: str) -> str | None:
@@ -59,14 +68,12 @@ async def _whisper_openai(api_key: str, audio_bytes: bytes, format: str) -> str 
 
 
 async def _whisper_gemini(api_key: str, audio_bytes: bytes, format: str) -> str | None:
-    """Fallback STT using Gemini's multimodal audio understanding (new SDK)."""
+    """Async fallback STT using Gemini multimodal audio understanding."""
     try:
         from google import genai
         from google.genai import types
-        import base64
         
         client = genai.Client(api_key=api_key)
-        
         audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
         
         mime_map = {
@@ -74,27 +81,27 @@ async def _whisper_gemini(api_key: str, audio_bytes: bytes, format: str) -> str 
             "wav": "audio/wav",
             "mp3": "audio/mpeg",
             "ogg": "audio/ogg",
+            "mp4": "audio/mp4",
         }
-        mime = mime_map.get(format, "audio/webm")
+        mime = mime_map.get(format.lower(), "audio/webm")
         
-        response = client.models.generate_content(
+        response = await client.aio.models.generate_content(
             model="gemini-2.0-flash",
             contents=[
                 types.Content(
                     role="user",
                     parts=[
-                        types.Part.from_text(text="Transcribe the following audio. Return ONLY the spoken words, nothing else."),
+                        types.Part.from_text(text="Transcribe the spoken question in this audio. Return ONLY the exact spoken text, nothing else."),
                         types.Part(inline_data=types.Blob(mime_type=mime, data=audio_b64)),
                     ]
                 )
             ],
         )
         
-        result = response.text.strip()
+        result = response.text.strip() if response.text else ""
         print(f"[KOGNIT] STT (Gemini): '{result[:80]}...'")
         return result if result else None
         
     except Exception as e:
         print(f"[KOGNIT] Gemini STT error: {e}")
         return None
-

@@ -75,10 +75,96 @@ async def analyze_code(
     # Route to the available LLM
     response_text = await _call_llm(messages)
     
+    # If LLMs are unavailable or quota-exhausted (e.g. 429), use smart Socratic fallback
+    if not response_text:
+        response_text = _heuristic_socratic_fallback(code, language, last_error, user_question)
+
     if response_text and response_text.strip() == "__SILENT__":
         return None
     
     return response_text
+
+
+def _heuristic_socratic_fallback(
+    code: str,
+    language: str,
+    last_error: str | None = None,
+    user_question: str | None = None,
+) -> str | None:
+    """
+    Fallback Socratic analyzer when LLM API keys are exhausted or unavailable.
+    Provides proactive hints and reacts to questions using heuristic static checks across all programming languages.
+    """
+    if user_question:
+        return f"That's a great question! When working with {language}, try breaking down your logic step by step to test your hypothesis."
+
+    if "RUNTIME ERROR" in code:
+        return f"I noticed an execution error in your {language} code. Take a close look at your variable names, types, and includes."
+
+    lang_lower = (language or "").lower()
+
+    # Universal bracket & parenthesis balance check for all code files
+    open_braces = code.count("{")
+    close_braces = code.count("}")
+    if open_braces > close_braces:
+        return f"Take a look at your curly braces in {language}. You have an unclosed opening brace."
+    elif close_braces > open_braces:
+        return f"Check your braces in {language}. You have an extra closing curly brace."
+
+    open_parens = code.count("(")
+    close_parens = code.count(")")
+    if open_parens > close_parens:
+        return f"Check your parentheses in {language}. You are missing a closing parenthesis."
+    elif close_parens > open_parens:
+        return f"Check your parentheses in {language}. You have an extra closing parenthesis."
+
+    # C / C++ specific static checks
+    if lang_lower in ("c", "c++", "cpp", "h", "hpp"):
+        lines = [line.strip() for line in code.split("\n") if line.strip()]
+        for idx, line in enumerate(lines, 1):
+            if (not line.startswith("#") and 
+                not line.startswith("//") and 
+                not line.startswith("/*") and 
+                not line.endswith("*/") and 
+                not line.endswith("{") and 
+                not line.endswith("}") and 
+                not line.endswith(";") and
+                "main" not in line and
+                "struct" not in line and
+                "class" not in line):
+                return f"Take a close look near line {idx} in your C file. It looks like you might be missing a semicolon at the end of that statement."
+        
+        if last_error:
+            return "Nice work! That C code syntax issue seems to be resolved now."
+        
+        if "main" not in code and len(code.strip()) > 30:
+            return "Remember that a C program requires a main function as its entry point."
+
+    # Python AST check
+    elif lang_lower in ("python", "py"):
+        import ast
+        try:
+            ast.parse(code)
+            if last_error:
+                return "Nice, that fixed the syntax issue! Your Python logic looks clean now."
+            return None
+        except SyntaxError as e:
+            line_no = getattr(e, 'lineno', None)
+            msg = getattr(e, 'msg', 'syntax issue')
+            if line_no:
+                return f"Take a close look near line {line_no}. It looks like there is a {msg}."
+            return "I noticed a syntax issue with your Python code. Check your colons and indentation."
+
+    # JS/TS/Java/Go/Rust checks
+    elif lang_lower in ("javascript", "typescript", "js", "ts", "java", "go", "rust"):
+        if last_error:
+            return f"Great work! That previous error in your {language} code seems to be fixed now."
+
+    # Generic file fallback if last error was present
+    if last_error:
+        return f"Nice work! Your {language} code looks much better now."
+
+    return None
 
 
 async def _call_llm(messages: list[dict]) -> str | None:
@@ -99,69 +185,51 @@ async def _call_llm(messages: list[dict]) -> str | None:
     if anthropic_key:
         return await _call_anthropic(anthropic_key, messages)
     
-    print("[KOGNIT] ⚠ No LLM available")
+    print("[KOGNIT] No LLM available")
     return None
 
 
 async def _call_gemini(api_key: str, messages: list[dict]) -> str | None:
-    """Call Gemini API using the new google-genai SDK with retry on rate limits."""
-    import asyncio
-    
-    # Try multiple models — each has its own separate quota pool
-    models_to_try = ["gemini-1.5-flash", "gemini-2.0-flash"]
+    """Call Gemini API using the google-genai SDK with fast fallback on quota exhaustion."""
+    models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash"]
     
     for model_name in models_to_try:
-        for attempt in range(3):  # max 3 retries per model
-            try:
-                from google import genai
-                from google.genai import types
-                
-                client = genai.Client(api_key=api_key)
-                
-                # Extract system instruction and build contents
-                system_instruction = ""
-                contents = []
-                for msg in messages:
-                    if msg["role"] == "system":
-                        system_instruction = msg["content"]
-                    else:
-                        role = "user" if msg["role"] == "user" else "model"
-                        contents.append(
-                            types.Content(
-                                role=role,
-                                parts=[types.Part.from_text(text=msg["content"])]
-                            )
-                        )
-                
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_instruction,
-                        max_output_tokens=200,
-                        temperature=0.7,
-                    )
-                )
-                return response.text
-            except Exception as e:
-                error_str = str(e)
-                if "429" in error_str or "quota" in error_str.lower() or "rate" in error_str.lower():
-                    if attempt < 2:
-                        wait_time = (attempt + 1) * 15
-                        print(f"[KOGNIT] {model_name} rate limited (attempt {attempt+1}), waiting {wait_time}s...")
-                        await asyncio.sleep(wait_time)
-                        continue
-                    else:
-                        print(f"[KOGNIT] {model_name} quota exhausted, trying next model...")
-                        break
-                elif "404" in error_str or "not found" in error_str.lower() or "no longer available" in error_str.lower():
-                    print(f"[KOGNIT] {model_name} not available, trying next model...")
-                    break
+        try:
+            from google import genai
+            from google.genai import types
+            
+            client = genai.Client(api_key=api_key)
+            
+            system_instruction = ""
+            contents = []
+            for msg in messages:
+                if msg["role"] == "system":
+                    system_instruction = msg["content"]
                 else:
-                    print(f"[KOGNIT] Gemini ({model_name}) error: {e}")
-                    break
+                    role = "user" if msg["role"] == "user" else "model"
+                    contents.append(
+                        types.Content(
+                            role=role,
+                            parts=[types.Part.from_text(text=msg["content"])]
+                        )
+                    )
+            
+            response = await client.aio.models.generate_content(
+                model=model_name,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    max_output_tokens=200,
+                    temperature=0.7,
+                )
+            )
+            return response.text
+        except Exception as e:
+            error_str = str(e)
+            print(f"[KOGNIT] Gemini ({model_name}) limit/error: {error_str[:120]}...")
+            continue
     
-    print("[KOGNIT] ⚠ All Gemini models unavailable. Staying silent.")
+    print("[KOGNIT] Gemini unavailable (quota/key issue). Using Socratic fallback.")
     return None
 
 

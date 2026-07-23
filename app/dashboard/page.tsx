@@ -333,6 +333,11 @@ export default function DashboardPage() {
   const [inputValues, setInputValues] = useState<string[]>([])
   const [isInputPanelOpen, setIsInputPanelOpen] = useState(false)
 
+  // AI speech bubble state
+  const [speechBubbleText, setSpeechBubbleText] = useState('')
+  const [showSpeechBubble, setShowSpeechBubble] = useState(false)
+  const speechBubbleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const activeFile = files.find(f => f.id === activeFileId)
 
   // Send code updates to the AI tutor (debounced separately from extraction)
@@ -340,15 +345,37 @@ export default function DashboardPage() {
     if (!activeFile?.content || !activeFile?.language) return
     const timer = setTimeout(() => {
       sendCodeUpdate(activeFile.content, activeFile.language)
-    }, 5000) // 5s debounce for code monitoring to save Gemini rate limits
+    }, 3000) // 3s debounce for code monitoring
     return () => clearTimeout(timer)
   }, [activeFile?.content, activeFile?.language, sendCodeUpdate])
 
-  // Log AI responses to the console
+  // Mastery detection keywords
+  const MASTERY_KEYWORDS = ['fixed', 'great', 'looks good', 'correct', 'nice', 'well done', 'solid', 'perfect', 'excellent', 'good job', 'that fixed']
+
+  // Log AI responses to the console + show speech bubble + detect mastery
   useEffect(() => {
-    if (aiText) {
+    if (!aiText) return
+
+    const lower = aiText.toLowerCase()
+    const isMasteryPraise = MASTERY_KEYWORDS.some(kw => lower.includes(kw))
+
+    if (isMasteryPraise) {
+      // Mastery celebration!
+      setConsoleLines(prev => [...prev, { type: 'success', text: `[KOGNIT AI] ✨ ${aiText}` }])
+      trigger('nod')
+    } else {
+      // Regular hint/error detection
       setConsoleLines(prev => [...prev, { type: 'hint', text: `[KOGNIT AI] ${aiText}` }])
+      trigger('gesture')
     }
+
+    // Show speech bubble
+    setSpeechBubbleText(aiText)
+    setShowSpeechBubble(true)
+    if (speechBubbleTimerRef.current) clearTimeout(speechBubbleTimerRef.current)
+    speechBubbleTimerRef.current = setTimeout(() => {
+      setShowSpeechBubble(false)
+    }, 10000) // Auto-dismiss after 10s
   }, [aiText])
 
   // Log user transcript to the console
@@ -787,6 +814,16 @@ export default function DashboardPage() {
         lines.forEach((line: string) => addLog('error', `! ${line}`))
         trigger('gesture')
         producedOutput = true
+
+        // ── Proactive AI intervention on runtime errors ──
+        // Send the code + runtime error to the AI tutor so it can
+        // speak up with a Socratic hint about what went wrong.
+        if (activeFile) {
+          sendCodeUpdate(
+            `${activeFile.content}\n\n/* RUNTIME ERROR (from execution):\n${stderrStr}\n*/`,
+            activeFile.language
+          )
+        }
       }
 
       if (run?.code !== 0 && run?.code !== undefined && error_type !== 'infra') {
@@ -795,6 +832,10 @@ export default function DashboardPage() {
       } else if (!producedOutput) {
         addLog('success', '[RUN] ✓ Program executed successfully but produced no output')
         trigger('nod')
+        // Send clean code to AI so it can detect mastery (error resolved)
+        if (activeFile) {
+          sendCodeUpdate(activeFile.content, activeFile.language)
+        }
       } else if (error_type !== 'infra') {
         addLog('success', '[RUN] ✓ Execution completed')
       }
@@ -1637,6 +1678,51 @@ export default function DashboardPage() {
                         'radial-gradient(circle at 50% 50%, oklch(0.78 0.07 350 / 14%), transparent 65%)',
                     }}
                   />
+                )}
+              </AnimatePresence>
+
+              {/* ── AI Speech Bubble ── */}
+              <AnimatePresence>
+                {showSpeechBubble && speechBubbleText && (
+                  <motion.div
+                    key="speech-bubble"
+                    className="absolute top-3 left-2 right-2 z-30"
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -5, scale: 0.95 }}
+                    transition={{ duration: 0.35, ease: 'easeOut' }}
+                  >
+                    <div
+                      className="relative rounded-xl border border-sky-400/30 bg-sky-950/80 backdrop-blur-md px-4 py-3 shadow-[0_0_20px_rgba(56,189,248,0.15)]"
+                      onClick={() => setShowSpeechBubble(false)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      {/* Bubble tail */}
+                      <div
+                        className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-0 h-0"
+                        style={{
+                          borderLeft: '8px solid transparent',
+                          borderRight: '8px solid transparent',
+                          borderTop: '8px solid oklch(0.22 0.03 230 / 80%)',
+                        }}
+                      />
+                      <div className="flex items-start gap-2">
+                        <motion.span
+                          className="mt-0.5 text-sky-400 text-sm shrink-0"
+                          animate={{ scale: [1, 1.15, 1] }}
+                          transition={{ duration: 2, repeat: Infinity }}
+                        >
+                          {aiState === 'speaking' ? '🔊' : '💬'}
+                        </motion.span>
+                        <p className="font-mono text-[11px] leading-relaxed text-sky-100/90 line-clamp-4">
+                          {speechBubbleText}
+                        </p>
+                      </div>
+                      <span className="absolute top-1.5 right-2 font-mono text-[8px] text-sky-400/40 uppercase tracking-widest">
+                        click to dismiss
+                      </span>
+                    </div>
+                  </motion.div>
                 )}
               </AnimatePresence>
 

@@ -131,7 +131,13 @@ export function useAudioStream(): UseAudioStreamReturn {
 
     // Close audio context
     if (audioContextRef.current) {
-      audioContextRef.current.close()
+      if (audioContextRef.current.state !== 'closed') {
+        try {
+          audioContextRef.current.close().catch(() => {})
+        } catch (e) {
+          // AudioContext already closed
+        }
+      }
       audioContextRef.current = null
     }
 
