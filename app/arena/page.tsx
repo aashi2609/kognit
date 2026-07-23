@@ -11,6 +11,7 @@ import {
 } from "react"
 import { GlassPanel } from "@/components/glass-panel"
 import { StudentCharacter } from "@/components/student-character"
+import { useKognitTutor } from "@/hooks/use-kognit-tutor"
 
 /* ------------------------------------------------------------------ */
 /*  Types & Interfaces                                                 */
@@ -210,6 +211,9 @@ function SoundwaveRibbon({ typingSpeed }: { typingSpeed: number }) {
 /* ------------------------------------------------------------------ */
 
 export default function ArenaPage() {
+  // Tutor Hook Integration
+  const { aiState, aiText, userTranscript, isMicActive, sendCodeUpdate, startMic, stopMic } = useKognitTutor()
+
   // Difficulty Filter
   const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>("medium")
 
@@ -252,6 +256,20 @@ export default function ArenaPage() {
       { type: 'info', text: '[EXAM] Write your solution from scratch in the workspace.' }
     ])
   }, [question])
+
+  // Log AI responses to the terminal
+  useEffect(() => {
+    if (aiText) {
+      setTerminalLogs(prev => [...prev, { type: 'hint', text: `[AI TUTOR] ${aiText}` }])
+    }
+  }, [aiText])
+
+  // Log user transcript to the terminal
+  useEffect(() => {
+    if (userTranscript) {
+      setTerminalLogs(prev => [...prev, { type: 'info', text: `[YOU] ${userTranscript}` }])
+    }
+  }, [userTranscript])
 
   const totalSeconds = customTimeMinutes * 60
 
@@ -306,7 +324,12 @@ export default function ArenaPage() {
   const handleSubmit = useCallback(() => {
     setSubmitted(true)
     addTerminalLog('success', '[EXAM] Solution submitted for evaluation ✓')
-  }, [addTerminalLog])
+    addTerminalLog('info', '[EXAM] Awaiting AI Tutor evaluation (debounced, please wait 4s)...')
+
+    // Inject the prompt as a comment so the AI knows what we're solving
+    const codeWithContext = `/* Exam Question: ${question.title}\n${question.prompt}\n*/\n\n${answer}`
+    sendCodeUpdate(codeWithContext, typedLanguage || 'javascript')
+  }, [addTerminalLog, answer, typedLanguage, question, sendCodeUpdate])
 
   const handleHint = useCallback(() => {
     setShowHint(true)
@@ -872,27 +895,64 @@ export default function ArenaPage() {
                 </motion.div>
               </div>
               <div className="border-t border-white/5 px-4 py-2.5">
-                <div className="flex items-center justify-center gap-2">
-                  <motion.span
-                    className={`h-1.5 w-1.5 rounded-full ${
-                      submitted
-                        ? "bg-emerald-400"
-                        : isLowTime
-                          ? "bg-pink-400"
-                          : "bg-primary/50"
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <motion.span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        submitted
+                          ? "bg-emerald-400"
+                          : isLowTime
+                            ? "bg-pink-400"
+                            : "bg-primary/50"
+                      }`}
+                      animate={{ scale: [1, 1.3, 1], opacity: [1, 0.5, 1] }}
+                      transition={{ duration: 2, repeat: Infinity }}
+                    />
+                    <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/50">
+                      {aiState === 'speaking' && '🔊 speaking...'}
+                      {aiState === 'thinking' && '🧠 analyzing...'}
+                      {aiState === 'listening' && '🎙️ listening...'}
+                      {aiState === 'idle' && (
+                        submitted
+                          ? "solution reviewed ✓"
+                          : isLowTime
+                            ? "stay focused — you've got this"
+                            : typingSpeed > 6
+                              ? "great flow — keep going"
+                              : "take your time, think it through"
+                      )}
+                    </span>
+                  </div>
+
+                  {/* Microphone toggle */}
+                  <button
+                    onClick={() => isMicActive ? stopMic() : startMic()}
+                    className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[9px] uppercase tracking-widest transition-all ${
+                      isMicActive
+                        ? 'bg-sky-400/20 text-sky-300 border border-sky-400/40 shadow-[0_0_12px_rgba(56,189,248,0.2)]'
+                        : 'text-muted-foreground/50 hover:text-muted-foreground/80 hover:bg-white/5 border border-transparent'
                     }`}
-                    animate={{ scale: [1, 1.3, 1], opacity: [1, 0.5, 1] }}
-                    transition={{ duration: 2, repeat: Infinity }}
-                  />
-                  <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/50">
-                    {submitted
-                      ? "solution reviewed ✓"
-                      : isLowTime
-                        ? "stay focused — you've got this"
-                        : typingSpeed > 6
-                          ? "great flow — keep going"
-                          : "take your time, think it through"}
-                  </span>
+                    title={isMicActive ? 'Microphone active — click to mute' : 'Click to enable voice conversation'}
+                  >
+                    {isMicActive ? (
+                      <motion.svg
+                        className="w-3 h-3"
+                        fill="currentColor"
+                        viewBox="0 0 24 24"
+                        animate={{ scale: [1, 1.2, 1] }}
+                        transition={{ duration: 1, repeat: Infinity }}
+                      >
+                        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                        <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                      </motion.svg>
+                    ) : (
+                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                        <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                      </svg>
+                    )}
+                    {isMicActive ? 'live' : 'mic'}
+                  </button>
                 </div>
               </div>
             </GlassPanel>
