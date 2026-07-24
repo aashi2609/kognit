@@ -31,12 +31,19 @@ Your job:
 3. MASTERY CONFIRMATION: When a previously broken piece of code is now correct, celebrate briefly.
    Example: "Nice, that fixed it! Your logic looks solid now."
 
-IMPORTANT RULES:
+CRITICAL RULES - EVERY RESPONSE MUST FOLLOW THESE:
+- NEVER use filler acknowledgment phrases like "great question", "interesting", "good thinking", "that's a good point", or similar generic responses.
+- EVERY response must reference something concrete from the actual code (a line number, variable name, syntax element) or what the student just said.
+- If you cannot reference something specific, your response is invalid — rewrite it with concrete details.
+- When the student asks a direct clarifying question like "what is missing" or "where is the error", give a MORE specific response than your initial hint. Point to the exact line or syntax element.
 - Always respond in plain text. No markdown, no code blocks, no bullet points.
 - Your response will be spoken aloud via text-to-speech, so write like you're talking.
 - If the code looks fine and there's no question, respond with exactly: __SILENT__
-- If the student's code has a new error that wasn't there before, respond with a hint.
-- If the student fixed an error that was there before, respond with praise.
+- LANGUAGE-AWARE ERROR DETECTION: Only suggest errors that are valid for the programming language being used:
+  * Python: missing colons after if/for/def/while, indentation errors, mismatched parentheses/brackets, undefined variables
+  * JavaScript/TypeScript/Java/C/C++: missing semicolons, missing braces, mismatched parentheses, undefined variables
+  * NEVER suggest semicolon errors for Python code
+  * NEVER suggest colon errors for C/Java/JavaScript code
 """
 
 
@@ -54,21 +61,46 @@ async def analyze_code(
     # Build the messages for the LLM
     messages = [{"role": "system", "content": SOCRATIC_SYSTEM_PROMPT}]
     
-    # Add conversation history (last few turns for context)
-    for msg in conversation_history[-10:]:
+    # Add conversation history (last 3 turns for immediate context)
+    # Include last 6 messages (3 back-and-forth exchanges)
+    recent_messages = conversation_history[-6:] if len(conversation_history) > 0 else []
+    for msg in recent_messages:
         messages.append({"role": msg["role"], "content": msg["content"]})
     
-    # Build the current context message
+    # Build the current context message with line numbers
     context_parts = []
-    context_parts.append(f"The student is writing {language} code. Here is their current code:\n```\n{code}\n```")
+    
+    # Add numbered code for easier line reference
+    code_lines = code.split('\n')
+    numbered_code = '\n'.join(f"{i+1:3d} | {line}" for i, line in enumerate(code_lines))
+    context_parts.append(f"The student is writing {language} code. Here is their current code with line numbers:\n```\n{numbered_code}\n```")
     
     if last_error:
         context_parts.append(f"Previously detected error: {last_error}")
     
+    # Detect direct clarifying questions (escalation signals)
+    is_direct_question = False
     if user_question:
-        context_parts.append(f"The student just asked: \"{user_question}\"")
+        question_lower = user_question.lower()
+        clarifying_keywords = ["what is", "where is", "which", "what's", "where's", "show me", "tell me", "what line", "where"]
+        if any(keyword in question_lower for keyword in clarifying_keywords):
+            is_direct_question = True
+        
+        if is_direct_question:
+            context_parts.append(f"IMPORTANT: The student is asking a DIRECT clarifying question: \"{user_question}\"")
+            context_parts.append("This is an escalation signal. Give a MORE SPECIFIC response than before. Reference the exact line number or syntax element. Do not repeat your previous hint.")
+        else:
+            context_parts.append(f"The student just said: \"{user_question}\"")
     else:
         context_parts.append("The student just updated their code. Check if there are new errors, if a previous error was fixed, or if everything looks fine.")
+    
+    # Build conversation recap for context
+    if len(recent_messages) >= 2:
+        last_exchange = []
+        for msg in recent_messages[-2:]:
+            role_label = "Student" if msg["role"] == "user" else "You"
+            last_exchange.append(f"{role_label}: {msg['content']}")
+        context_parts.append(f"Recent conversation:\n" + "\n".join(last_exchange))
     
     messages.append({"role": "user", "content": "\n\n".join(context_parts)})
     
@@ -94,34 +126,93 @@ def _heuristic_socratic_fallback(
     """
     Fallback Socratic analyzer when LLM API keys are exhausted or unavailable.
     Provides proactive hints and reacts to questions using heuristic static checks across all programming languages.
+    Uses language-aware concept tagging to avoid suggesting invalid errors (e.g., semicolons in Python).
     """
+    lang_lower = (language or "").lower()
+    
+    # Detect direct clarifying questions for escalation
+    is_direct_question = False
     if user_question:
-        return f"That's a great question! When working with {language}, try breaking down your logic step by step to test your hypothesis."
-
+        question_lower = user_question.lower()
+        clarifying_keywords = ["what is", "where is", "which", "what's", "where's", "show me", "tell me", "what line", "where"]
+        is_direct_question = any(keyword in question_lower for keyword in clarifying_keywords)
+    
+    if user_question and not is_direct_question:
+        return f"When working with {language}, try breaking down your logic step by step to test your hypothesis."
+    
     if "RUNTIME ERROR" in code:
         return f"I noticed an execution error in your {language} code. Take a close look at your variable names, types, and includes."
 
-    lang_lower = (language or "").lower()
-
+    # Language-specific concept tagging: allowed errors per language family
+    PYTHON_LANGUAGES = ("python", "py")
+    C_FAMILY_LANGUAGES = ("c", "c++", "cpp", "h", "hpp", "java", "javascript", "typescript", "js", "ts", "csharp", "c#", "go", "rust")
+    
     # Universal bracket & parenthesis balance check for all code files
     open_braces = code.count("{")
     close_braces = code.count("}")
-    if open_braces > close_braces:
-        return f"Take a look at your curly braces in {language}. You have an unclosed opening brace."
-    elif close_braces > open_braces:
-        return f"Check your braces in {language}. You have an extra closing curly brace."
+    if open_braces > close_braces and lang_lower not in PYTHON_LANGUAGES:
+        return f"Take a look at your curly braces in {language}. You have an unclosed opening brace on one of your lines."
+    elif close_braces > open_braces and lang_lower not in PYTHON_LANGUAGES:
+        return f"Check your braces in {language}. You have an extra closing curly brace somewhere."
 
     open_parens = code.count("(")
     close_parens = code.count(")")
     if open_parens > close_parens:
-        return f"Check your parentheses in {language}. You are missing a closing parenthesis."
+        return f"Check your parentheses in {language}. You are missing a closing parenthesis somewhere in your code."
     elif close_parens > open_parens:
         return f"Check your parentheses in {language}. You have an extra closing parenthesis."
 
-    # C / C++ specific static checks
-    if lang_lower in ("c", "c++", "cpp", "h", "hpp"):
+    # Python-specific static checks (AST parsing + indentation + colon errors)
+    if lang_lower in PYTHON_LANGUAGES:
+        import ast
+        
+        # Check for missing colons after control structures
+        lines = code.split('\n')
+        for idx, line in enumerate(lines, 1):
+            stripped = line.strip()
+            # Check if line starts with control keyword but doesn't end with colon
+            control_keywords = ['if ', 'elif ', 'else', 'for ', 'while ', 'def ', 'class ', 'try', 'except', 'finally', 'with ']
+            for keyword in control_keywords:
+                if stripped.startswith(keyword) and not stripped.endswith(':') and not stripped.endswith(':\\'):
+                    # Avoid false positives on comments or incomplete lines
+                    if len(stripped) > len(keyword) + 2 and '#' not in stripped:
+                        if is_direct_question:
+                            return f"Look at line {idx}. You're missing a colon at the end of that {keyword.strip()} statement."
+                        return f"Take a close look at line {idx}. Something is missing at the end of that line."
+        
+        # Try parsing with AST
+        try:
+            ast.parse(code)
+            if last_error:
+                return "Nice, that fixed the syntax issue! Your Python logic looks clean now."
+            return None
+        except SyntaxError as e:
+            line_no = getattr(e, 'lineno', None)
+            msg = getattr(e, 'msg', 'syntax issue')
+            
+            # Provide more specific guidance for common Python errors
+            if 'invalid syntax' in msg.lower():
+                if line_no:
+                    if is_direct_question:
+                        return f"Line {line_no} has a syntax error. Check if you're missing a colon, have incorrect indentation, or mismatched brackets."
+                    return f"Take a close look near line {line_no}. There's something off with the syntax there."
+                return "I noticed a syntax issue with your Python code. Check your colons, indentation, and brackets."
+            
+            if 'expected an indented block' in msg.lower() or 'indent' in msg.lower():
+                return f"Python is very particular about indentation. Check the spacing at the beginning of your lines around line {line_no or 'the error'}."
+            
+            if line_no:
+                if is_direct_question:
+                    return f"Look at line {line_no}. There's a {msg} there."
+                return f"Take a close look near line {line_no}. It looks like there is a {msg}."
+            return "I noticed a syntax issue with your Python code. Check your colons and indentation."
+
+    # C / C++ / Java / JavaScript / TypeScript specific static checks
+    # ONLY suggest semicolons for languages that actually require them
+    elif lang_lower in C_FAMILY_LANGUAGES:
         lines = [line.strip() for line in code.split("\n") if line.strip()]
         for idx, line in enumerate(lines, 1):
+            # Check for missing semicolons in C-family languages
             if (not line.startswith("#") and 
                 not line.startswith("//") and 
                 not line.startswith("/*") and 
@@ -131,36 +222,22 @@ def _heuristic_socratic_fallback(
                 not line.endswith(";") and
                 "main" not in line and
                 "struct" not in line and
-                "class" not in line):
-                return f"Take a close look near line {idx} in your C file. It looks like you might be missing a semicolon at the end of that statement."
+                "class" not in line and
+                "if" not in line and
+                "for" not in line and
+                "while" not in line and
+                len(line) > 5):
+                if is_direct_question:
+                    return f"Look at line {idx}. You're missing a semicolon at the end of that statement."
+                return f"Take a close look near line {idx}. It looks like you might be missing something at the end of that statement."
         
         if last_error:
-            return "Nice work! That C code syntax issue seems to be resolved now."
+            return f"Nice work! That {language} code syntax issue seems to be resolved now."
         
-        if "main" not in code and len(code.strip()) > 30:
-            return "Remember that a C program requires a main function as its entry point."
+        if "main" not in code and len(code.strip()) > 30 and lang_lower in ("c", "c++", "cpp", "java"):
+            return f"Remember that a {language} program requires a main function or method as its entry point."
 
-    # Python AST check
-    elif lang_lower in ("python", "py"):
-        import ast
-        try:
-            ast.parse(code)
-            if last_error:
-                return "Nice, that fixed the syntax issue! Your Python logic looks clean now."
-            return None
-        except SyntaxError as e:
-            line_no = getattr(e, 'lineno', None)
-            msg = getattr(e, 'msg', 'syntax issue')
-            if line_no:
-                return f"Take a close look near line {line_no}. It looks like there is a {msg}."
-            return "I noticed a syntax issue with your Python code. Check your colons and indentation."
-
-    # JS/TS/Java/Go/Rust checks
-    elif lang_lower in ("javascript", "typescript", "js", "ts", "java", "go", "rust"):
-        if last_error:
-            return f"Great work! That previous error in your {language} code seems to be fixed now."
-
-    # Generic file fallback if last error was present
+    # Generic fallback if last error was present
     if last_error:
         return f"Nice work! Your {language} code looks much better now."
 
@@ -191,14 +268,25 @@ async def _call_llm(messages: list[dict]) -> str | None:
 
 async def _call_gemini(api_key: str, messages: list[dict]) -> str | None:
     """Call Gemini API using the google-genai SDK with fast fallback on quota exhaustion."""
+    import httpx
+
+    # On some corporate networks (e.g. Zscaler), SSL inspection replaces certificates
+    # with a company-signed cert that Python's bundled CA store doesn't trust.
+    # We disable SSL verification here since the API key provides authentication.
+    _ssl_verify = os.getenv("KOGNIT_SSL_VERIFY", "0") not in ("0", "false", "no")
+
     models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash"]
     
     for model_name in models_to_try:
         try:
             from google import genai
             from google.genai import types
-            
-            client = genai.Client(api_key=api_key)
+
+            async_client = httpx.AsyncClient(verify=_ssl_verify)
+            client = genai.Client(
+                api_key=api_key,
+                http_options=types.HttpOptions(httpx_async_client=async_client),
+            )
             
             system_instruction = ""
             contents = []
