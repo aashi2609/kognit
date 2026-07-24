@@ -27,6 +27,8 @@ export function useKognitTutor() {
     sessionIdRef.current = `session_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
   }, [])
 
+  const isAudioPlayingRef = useRef(false)
+
   // Connect WebSocket
   const connectWs = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING) return
@@ -49,13 +51,15 @@ export function useKognitTutor() {
           const data = JSON.parse(event.data)
 
           if (data.type === 'ai_state') {
-            setAiState(data.state as AiState)
+            if (data.state === 'idle' && isAudioPlayingRef.current) {
+              // Ignore premature idle from backend while audio is actively playing
+            } else {
+              setAiState(data.state as AiState)
+            }
           }
 
           if (data.type === 'ai_response') {
             setAiText(data.text)
-            // Trigger native browser SpeechSynthesis immediately as fallback
-            speakTextFallback(data.text)
           }
 
           if (data.type === 'user_transcript') {
@@ -151,14 +155,34 @@ export function useKognitTutor() {
       const url = URL.createObjectURL(blob)
       const audio = new Audio(url)
       
-      audio.onended = () => URL.revokeObjectURL(url)
+      audio.onplay = () => {
+        isAudioPlayingRef.current = true
+        setAiState('speaking')
+      }
+      audio.onended = () => {
+        isAudioPlayingRef.current = false
+        URL.revokeObjectURL(url)
+        setAiState('idle')
+      }
+      audio.onerror = () => {
+        isAudioPlayingRef.current = false
+        setAiState('idle')
+      }
       
       const playPromise = audio.play()
       if (playPromise !== undefined) {
         playPromise.catch((e) => {
+          isAudioPlayingRef.current = false
+          setAiState('idle')
           console.warn('[KOGNIT] Browser autoplay restriction encountered. Attempting unlock on click...', e)
           const unlock = () => {
-            audio.play().catch(() => {})
+            audio.play().then(() => {
+              isAudioPlayingRef.current = true
+              setAiState('speaking')
+            }).catch(() => {
+              isAudioPlayingRef.current = false
+              setAiState('idle')
+            })
             window.removeEventListener('click', unlock)
             window.removeEventListener('keydown', unlock)
           }

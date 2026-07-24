@@ -1,242 +1,383 @@
 "use client"
 
-import { Canvas, useFrame, useThree } from "@react-three/fiber"
-import { Float, Html } from "@react-three/drei"
 import { motion, AnimatePresence } from "motion/react"
 import Link from "next/link"
-import { useCallback, useMemo, useRef, useState } from "react"
-import * as THREE from "three"
+import { useCallback, useMemo, useRef, useState, useEffect } from "react"
 import { GlassPanel } from "@/components/glass-panel"
 
-/* ------------------------------------------------------------------ */
-/*  Skill data                                                         */
-/* ------------------------------------------------------------------ */
+/* ================================================================== */
+/*  Data Model                                                         */
+/* ================================================================== */
 
-interface Skill {
+type NodeState = 'locked' | 'struggling' | 'mastered'
+
+interface CodeDiff {
+  before: string
+  after: string
+  timestamp: string
+}
+
+interface BugEntry {
+  issue: string
+  resolution: string
+  timestamp: string
+}
+
+interface SkillNode {
   id: string
   label: string
   category: string
-  mastery: number // 0–100
-  retention: number // 0–100 (decay curve)
-  readiness: number // 0–100 (interview readiness)
+  state: NodeState
+  mastery: number
+  retention: number
+  readiness: number
+  confusionScore: number
   practiceCount: number
   lastPracticed: string
-  position: [number, number, number]
+  avgResolutionTime: string
+  position: { x: number; y: number }
+  codeDiffs: CodeDiff[]
+  voiceReflections: string[]
+  bugTimeline: BugEntry[]
 }
 
-const SKILLS: Skill[] = [
-  { id: 'arrays', label: 'Arrays', category: 'Data Structures', mastery: 92, retention: 88, readiness: 95, practiceCount: 47, lastPracticed: '2h ago', position: [-3.5, 2, 0] },
-  { id: 'linked-lists', label: 'Linked Lists', category: 'Data Structures', mastery: 78, retention: 65, readiness: 70, practiceCount: 31, lastPracticed: '1d ago', position: [-2, 3.2, -1] },
-  { id: 'trees', label: 'Trees', category: 'Data Structures', mastery: 65, retention: 52, readiness: 55, practiceCount: 22, lastPracticed: '3d ago', position: [-0.5, 1.8, 0.5] },
-  { id: 'graphs', label: 'Graphs', category: 'Data Structures', mastery: 42, retention: 30, readiness: 35, practiceCount: 14, lastPracticed: '1w ago', position: [1.5, 3, -0.5] },
-  { id: 'hash-maps', label: 'Hash Maps', category: 'Data Structures', mastery: 85, retention: 80, readiness: 88, practiceCount: 38, lastPracticed: '6h ago', position: [-4, 0, 0.5] },
-  { id: 'sorting', label: 'Sorting', category: 'Algorithms', mastery: 88, retention: 82, readiness: 90, practiceCount: 42, lastPracticed: '4h ago', position: [3, 1.5, 0] },
-  { id: 'searching', label: 'Searching', category: 'Algorithms', mastery: 75, retention: 68, readiness: 72, practiceCount: 28, lastPracticed: '2d ago', position: [4, 0, -0.5] },
-  { id: 'dp', label: 'Dynamic Prog.', category: 'Algorithms', mastery: 35, retention: 22, readiness: 28, practiceCount: 10, lastPracticed: '2w ago', position: [2, -1.5, 0.5] },
-  { id: 'recursion', label: 'Recursion', category: 'Algorithms', mastery: 70, retention: 60, readiness: 65, practiceCount: 25, lastPracticed: '1d ago', position: [0.5, -0.5, 0] },
-  { id: 'greedy', label: 'Greedy', category: 'Algorithms', mastery: 55, retention: 42, readiness: 48, practiceCount: 18, lastPracticed: '5d ago', position: [3.5, -2.5, -0.5] },
-  { id: 'big-o', label: 'Big-O Analysis', category: 'Time Complexity', mastery: 80, retention: 75, readiness: 82, practiceCount: 35, lastPracticed: '8h ago', position: [-1.5, -2, 0] },
-  { id: 'space', label: 'Space Complexity', category: 'Time Complexity', mastery: 60, retention: 48, readiness: 55, practiceCount: 20, lastPracticed: '4d ago', position: [-3, -2.8, 0.5] },
-  { id: 'amortized', label: 'Amortized Analysis', category: 'Time Complexity', mastery: 25, retention: 15, readiness: 18, practiceCount: 6, lastPracticed: '3w ago', position: [0, -3.5, -0.5] },
+/* ================================================================== */
+/*  Skill Data (hardcoded, matching existing approach)                  */
+/* ================================================================== */
+
+const SKILLS: SkillNode[] = [
+  {
+    id: 'variables', label: 'Variables', category: 'Fundamentals',
+    state: 'mastered', mastery: 98, retention: 95, readiness: 99, confusionScore: 2,
+    practiceCount: 62, lastPracticed: '1h ago', avgResolutionTime: '12s',
+    position: { x: 120, y: 320 },
+    codeDiffs: [
+      { before: 'let x = "5" + 3;', after: 'let x = Number("5") + 3; // 8', timestamp: '2 weeks ago' },
+    ],
+    voiceReflections: ['Oh right, type coercion — the string concatenation was hiding the bug!'],
+    bugTimeline: [
+      { issue: 'Type coercion causing string concat', resolution: 'Used explicit Number() cast', timestamp: '2 weeks ago' },
+    ],
+  },
+  {
+    id: 'functions', label: 'Functions', category: 'Fundamentals',
+    state: 'mastered', mastery: 94, retention: 90, readiness: 96, confusionScore: 5,
+    practiceCount: 55, lastPracticed: '3h ago', avgResolutionTime: '18s',
+    position: { x: 300, y: 260 },
+    codeDiffs: [
+      { before: 'function add(a, b) {\n  a + b\n}', after: 'function add(a, b) {\n  return a + b;\n}', timestamp: '10 days ago' },
+    ],
+    voiceReflections: ['I keep forgetting the return statement — the function was returning undefined!'],
+    bugTimeline: [
+      { issue: 'Missing return statement', resolution: 'Added explicit return keyword', timestamp: '10 days ago' },
+    ],
+  },
+  {
+    id: 'arrays', label: 'Arrays', category: 'Data Structures',
+    state: 'mastered', mastery: 92, retention: 88, readiness: 95, confusionScore: 8,
+    practiceCount: 47, lastPracticed: '2h ago', avgResolutionTime: '25s',
+    position: { x: 280, y: 420 },
+    codeDiffs: [
+      { before: 'arr.splice(i, 1);\n// inside for loop', after: 'arr = arr.filter((_, idx) => idx !== i);', timestamp: '1 week ago' },
+    ],
+    voiceReflections: ['Splice mutates in-place and shifts indices — filter is cleaner for removal!'],
+    bugTimeline: [
+      { issue: 'Array mutation inside loop caused skipped elements', resolution: 'Switched to filter()', timestamp: '1 week ago' },
+    ],
+  },
+  {
+    id: 'linked-lists', label: 'Linked Lists', category: 'Data Structures',
+    state: 'struggling', mastery: 58, retention: 42, readiness: 50, confusionScore: 55,
+    practiceCount: 19, lastPracticed: '4d ago', avgResolutionTime: '3m 20s',
+    position: { x: 480, y: 460 },
+    codeDiffs: [
+      { before: 'curr = curr.next;\ncurr.next = prev;', after: 'let next = curr.next;\ncurr.next = prev;\nprev = curr;\ncurr = next;', timestamp: '4 days ago' },
+    ],
+    voiceReflections: ['I need to save the next pointer BEFORE overwriting it — otherwise I lose the rest of the list!'],
+    bugTimeline: [
+      { issue: 'Lost reference to rest of list during reversal', resolution: 'Saved next pointer before overwrite', timestamp: '4 days ago' },
+      { issue: 'Infinite loop in cycle detection', resolution: 'Used fast/slow pointer technique', timestamp: '1 week ago' },
+    ],
+  },
+  {
+    id: 'hash-maps', label: 'Hash Maps', category: 'Data Structures',
+    state: 'mastered', mastery: 85, retention: 80, readiness: 88, confusionScore: 12,
+    practiceCount: 38, lastPracticed: '6h ago', avgResolutionTime: '30s',
+    position: { x: 160, y: 500 },
+    codeDiffs: [
+      { before: 'if (map[key]) {', after: 'if (map.has(key)) {', timestamp: '5 days ago' },
+    ],
+    voiceReflections: ['Map.has() is the correct check — bracket notation can give false for 0 or empty string!'],
+    bugTimeline: [
+      { issue: 'Falsy value check failed for 0', resolution: 'Used Map.has() instead of truthy check', timestamp: '5 days ago' },
+    ],
+  },
+  {
+    id: 'recursion', label: 'Recursion', category: 'Algorithms',
+    state: 'struggling', mastery: 52, retention: 38, readiness: 45, confusionScore: 62,
+    practiceCount: 18, lastPracticed: '5d ago', avgResolutionTime: '4m 15s',
+    position: { x: 500, y: 280 },
+    codeDiffs: [
+      { before: 'function sum(n) {\n  return n + sum(n-1);\n}', after: 'function sum(n) {\n  if (n <= 0) return 0;\n  return n + sum(n-1);\n}', timestamp: '5 days ago' },
+    ],
+    voiceReflections: ['Oh! sum is 0 because root becomes null! I need the base case before the recursive call.'],
+    bugTimeline: [
+      { issue: 'Stack overflow — missing base case', resolution: 'Added n <= 0 guard clause', timestamp: '5 days ago' },
+      { issue: 'Off-by-one in factorial', resolution: 'Changed base case from n===0 to n<=1', timestamp: '1 week ago' },
+    ],
+  },
+  {
+    id: 'sorting', label: 'Sorting', category: 'Algorithms',
+    state: 'mastered', mastery: 88, retention: 82, readiness: 90, confusionScore: 10,
+    practiceCount: 42, lastPracticed: '4h ago', avgResolutionTime: '22s',
+    position: { x: 680, y: 200 },
+    codeDiffs: [
+      { before: 'arr.sort();', after: 'arr.sort((a, b) => a - b);', timestamp: '3 days ago' },
+    ],
+    voiceReflections: ['Default sort is lexicographic — [10, 2, 1] sorts to [1, 10, 2] without comparator!'],
+    bugTimeline: [
+      { issue: 'Lexicographic sort on numbers', resolution: 'Added numeric comparator function', timestamp: '3 days ago' },
+    ],
+  },
+  {
+    id: 'trees', label: 'Trees', category: 'Data Structures',
+    state: 'struggling', mastery: 45, retention: 32, readiness: 38, confusionScore: 58,
+    practiceCount: 14, lastPracticed: '1w ago', avgResolutionTime: '5m 40s',
+    position: { x: 680, y: 380 },
+    codeDiffs: [
+      { before: 'function height(node) {\n  return height(node.left)\n    + height(node.right);\n}', after: 'function height(node) {\n  if (!node) return 0;\n  return 1 + Math.max(\n    height(node.left),\n    height(node.right)\n  );\n}', timestamp: '1 week ago' },
+    ],
+    voiceReflections: ['Height is the MAX of subtrees plus 1 — I was adding both sides instead of taking the max!'],
+    bugTimeline: [
+      { issue: 'Tree height calculated as sum instead of max', resolution: 'Used Math.max() + 1', timestamp: '1 week ago' },
+      { issue: 'Null pointer on leaf children', resolution: 'Added null base case', timestamp: '1 week ago' },
+    ],
+  },
+  {
+    id: 'tree-traversal', label: 'Tree Traversal', category: 'Algorithms',
+    state: 'locked', mastery: 15, retention: 8, readiness: 10, confusionScore: 0,
+    practiceCount: 3, lastPracticed: '3w ago', avgResolutionTime: '—',
+    position: { x: 860, y: 340 },
+    codeDiffs: [],
+    voiceReflections: [],
+    bugTimeline: [],
+  },
+  {
+    id: 'graphs', label: 'Graphs', category: 'Data Structures',
+    state: 'locked', mastery: 10, retention: 5, readiness: 8, confusionScore: 0,
+    practiceCount: 2, lastPracticed: '1mo ago', avgResolutionTime: '—',
+    position: { x: 860, y: 480 },
+    codeDiffs: [],
+    voiceReflections: [],
+    bugTimeline: [],
+  },
+  {
+    id: 'dp', label: 'Dynamic Prog.', category: 'Algorithms',
+    state: 'locked', mastery: 5, retention: 2, readiness: 3, confusionScore: 0,
+    practiceCount: 1, lastPracticed: 'never', avgResolutionTime: '—',
+    position: { x: 900, y: 200 },
+    codeDiffs: [],
+    voiceReflections: [],
+    bugTimeline: [],
+  },
+  {
+    id: 'searching', label: 'Searching', category: 'Algorithms',
+    state: 'mastered', mastery: 82, retention: 75, readiness: 80, confusionScore: 15,
+    practiceCount: 30, lastPracticed: '1d ago', avgResolutionTime: '28s',
+    position: { x: 480, y: 140 },
+    codeDiffs: [
+      { before: 'mid = (lo + hi) / 2;', after: 'mid = Math.floor((lo + hi) / 2);', timestamp: '1 day ago' },
+    ],
+    voiceReflections: ['Integer division! JavaScript gives floats — Math.floor prevents fractional indices.'],
+    bugTimeline: [
+      { issue: 'Fractional index in binary search', resolution: 'Used Math.floor() on midpoint', timestamp: '1 day ago' },
+    ],
+  },
+  {
+    id: 'big-o', label: 'Big-O Analysis', category: 'Complexity',
+    state: 'mastered', mastery: 80, retention: 75, readiness: 82, confusionScore: 18,
+    practiceCount: 35, lastPracticed: '8h ago', avgResolutionTime: '20s',
+    position: { x: 680, y: 80 },
+    codeDiffs: [],
+    voiceReflections: ['Nested loops = O(n²) not O(n) — each inner loop runs n times for each outer iteration.'],
+    bugTimeline: [
+      { issue: 'Mistook O(n²) nested loop for O(n)', resolution: 'Traced iteration count: n × n = n²', timestamp: '3 days ago' },
+    ],
+  },
+  {
+    id: 'greedy', label: 'Greedy', category: 'Algorithms',
+    state: 'struggling', mastery: 40, retention: 28, readiness: 35, confusionScore: 48,
+    practiceCount: 12, lastPracticed: '6d ago', avgResolutionTime: '6m 10s',
+    position: { x: 860, y: 120 },
+    codeDiffs: [
+      { before: '// always pick largest\nitems.sort((a,b) => b.value - a.value);', after: '// pick best value/weight ratio\nitems.sort((a,b) => (b.value/b.weight) - (a.value/a.weight));', timestamp: '6 days ago' },
+    ],
+    voiceReflections: ['Greedy by value alone fails — I need value-to-weight ratio for fractional knapsack!'],
+    bugTimeline: [
+      { issue: 'Greedy choice by raw value gave suboptimal result', resolution: 'Sorted by value/weight density ratio', timestamp: '6 days ago' },
+    ],
+  },
 ]
 
 const EDGES: [string, string][] = [
-  ['arrays', 'sorting'], ['arrays', 'searching'], ['arrays', 'hash-maps'],
-  ['linked-lists', 'trees'], ['trees', 'graphs'], ['graphs', 'dp'],
-  ['sorting', 'big-o'], ['searching', 'big-o'], ['dp', 'recursion'],
-  ['recursion', 'trees'], ['big-o', 'space'], ['big-o', 'amortized'],
-  ['greedy', 'dp'], ['hash-maps', 'linked-lists'],
+  ['variables', 'functions'],
+  ['variables', 'arrays'],
+  ['functions', 'recursion'],
+  ['functions', 'searching'],
+  ['arrays', 'sorting'],
+  ['arrays', 'hash-maps'],
+  ['arrays', 'linked-lists'],
+  ['recursion', 'trees'],
+  ['recursion', 'tree-traversal'],
+  ['recursion', 'dp'],
+  ['trees', 'tree-traversal'],
+  ['trees', 'graphs'],
+  ['linked-lists', 'trees'],
+  ['sorting', 'big-o'],
+  ['searching', 'big-o'],
+  ['sorting', 'greedy'],
+  ['big-o', 'dp'],
+  ['greedy', 'dp'],
 ]
 
-/* ------------------------------------------------------------------ */
-/*  R3F constellation scene                                            */
-/* ------------------------------------------------------------------ */
+/* ================================================================== */
+/*  AI Diagnosis (derived from skill data)                             */
+/* ================================================================== */
 
-function ConstellationEdges() {
-  const lineRefs = useRef<(THREE.Line | null)[]>([])
+function useAIDiagnosis(skills: SkillNode[]) {
+  return useMemo(() => {
+    const mastered = skills
+      .filter(s => s.state === 'mastered')
+      .sort((a, b) => b.mastery - a.mastery)
+    const struggling = skills
+      .filter(s => s.state === 'struggling')
+      .sort((a, b) => b.confusionScore - a.confusionScore)
+    const weakest = [...skills]
+      .filter(s => s.state !== 'locked')
+      .sort((a, b) => a.mastery - b.mastery)[0]
 
-  const geometries = useMemo(() => {
-    return EDGES.map(([fromId, toId]) => {
-      const from = SKILLS.find((s) => s.id === fromId)!
-      const to = SKILLS.find((s) => s.id === toId)!
-      const pts = [
-        new THREE.Vector3(...from.position),
-        new THREE.Vector3(...to.position),
-      ]
-      const geo = new THREE.BufferGeometry().setFromPoints(pts)
-      return geo
-    })
-  }, [])
+    const strengths = mastered.slice(0, 3).map(s => s.label).join(', ')
+    const blindspot = struggling[0]
+    const overallMastery = Math.round(
+      skills.filter(s => s.state !== 'locked').reduce((sum, s) => sum + s.mastery, 0) /
+      skills.filter(s => s.state !== 'locked').length
+    )
 
-  return (
-    <>
-      {geometries.map((geo, i) => (
-        <line key={i} ref={(el) => { lineRefs.current[i] = el as unknown as THREE.Line | null }}>
-          <bufferGeometry attach="geometry" {...geo} />
-          <lineBasicMaterial
-            attach="material"
-            color="#34d399"
-            transparent
-            opacity={0.08}
-            depthWrite={false}
-          />
-        </line>
-      ))}
-    </>
-  )
+    return { strengths, blindspot, weakest, overallMastery, mastered, struggling }
+  }, [skills])
 }
 
-function SkillNode({
-  skill,
-  onHover,
-  onUnhover,
-  hovered,
-}: {
-  skill: Skill
-  onHover: () => void
-  onUnhover: () => void
-  hovered: boolean
-}) {
-  const meshRef = useRef<THREE.Mesh>(null)
-  const elapsed = useRef(Math.random() * 100)
-  const mastered = skill.mastery >= 75
+/* ================================================================== */
+/*  Memory Decay helper                                                */
+/* ================================================================== */
 
-  useFrame((_, delta) => {
-    if (!meshRef.current) return
-    elapsed.current += delta
-
-    // Mastered nodes pulse gently
-    if (mastered) {
-      const pulse = 1 + Math.sin(elapsed.current * 1.5) * 0.08
-      meshRef.current.scale.setScalar(pulse)
-    }
-  })
-
-  const baseColor = mastered
-    ? '#34d399'
-    : skill.mastery >= 50
-      ? '#fbbf24'
-      : skill.mastery >= 25
-        ? '#fb923c'
-        : '#64748b'
-
-  const emissiveIntensity = hovered ? 1.2 : mastered ? 0.4 : 0.1
-
-  return (
-    <Float
-      speed={1.2}
-      floatIntensity={0.15}
-      rotationIntensity={0.05}
-    >
-      <mesh
-        ref={meshRef}
-        position={skill.position}
-        onPointerEnter={(e) => { e.stopPropagation(); onHover() }}
-        onPointerLeave={onUnhover}
-      >
-        <sphereGeometry args={[0.22, 24, 24]} />
-        <meshStandardMaterial
-          color={baseColor}
-          emissive={baseColor}
-          emissiveIntensity={emissiveIntensity}
-          transparent
-          opacity={skill.mastery >= 25 ? 0.9 : 0.35}
-          roughness={0.2}
-          metalness={0.4}
-        />
-      </mesh>
-      {/* Outer glow ring for mastered */}
-      {mastered && (
-        <mesh position={skill.position}>
-          <ringGeometry args={[0.3, 0.36, 32]} />
-          <meshBasicMaterial
-            color="#34d399"
-            transparent
-            opacity={0.15}
-            side={THREE.DoubleSide}
-            depthWrite={false}
-          />
-        </mesh>
-      )}
-      {/* Label always visible */}
-      <Html
-        position={[skill.position[0], skill.position[1] - 0.45, skill.position[2]]}
-        center
-        distanceFactor={8}
-        style={{ pointerEvents: 'none' }}
-      >
-        <span
-          className="whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.15em]"
-          style={{
-            color: mastered ? 'oklch(0.82 0.09 165)' : 'oklch(0.55 0.02 300)',
-            textShadow: '0 1px 4px oklch(0 0 0 / 80%)',
-          }}
-        >
-          {skill.label}
-        </span>
-      </Html>
-    </Float>
-  )
+function getDecayLevel(lastPracticed: string): 'fresh' | 'fading' | 'rusty' {
+  if (lastPracticed.includes('h ago') || lastPracticed.includes('1d ago')) return 'fresh'
+  if (lastPracticed.includes('d ago') || lastPracticed.includes('w ago')) return 'fading'
+  return 'rusty'
 }
 
-function SceneLighting() {
-  return (
-    <>
-      <ambientLight intensity={0.15} color="#a0c4ff" />
-      <pointLight position={[5, 5, 5]} intensity={0.6} color="#34d399" />
-      <pointLight position={[-5, -3, 3]} intensity={0.3} color="#e879a8" />
-    </>
-  )
+function getDecayOpacity(decay: 'fresh' | 'fading' | 'rusty'): number {
+  if (decay === 'fresh') return 1
+  if (decay === 'fading') return 0.65
+  return 0.35
 }
 
-function CameraAutoRotate() {
-  const { camera } = useThree()
-  const elapsed = useRef(0)
+/* ================================================================== */
+/*  SVG Graph Components                                               */
+/* ================================================================== */
 
-  useFrame((_, delta) => {
-    elapsed.current += delta * 0.08
-    camera.position.x = Math.sin(elapsed.current) * 8
-    camera.position.z = Math.cos(elapsed.current) * 8
-    camera.position.y = 2 + Math.sin(elapsed.current * 0.5) * 0.5
-    camera.lookAt(0, 0, 0)
-  })
+const NODE_RADIUS = 28
 
-  return null
+function getNodeColor(state: NodeState): string {
+  switch (state) {
+    case 'mastered': return '#22d3ee'   // bright cyan
+    case 'struggling': return '#f472b6' // bright neon pink
+    case 'locked': return '#475569'     // slate-600
+  }
 }
 
-/* ------------------------------------------------------------------ */
-/*  Page                                                               */
-/* ------------------------------------------------------------------ */
+function getNodeGlowColor(state: NodeState): string {
+  switch (state) {
+    case 'mastered': return 'rgba(34, 211, 238, 0.5)'
+    case 'struggling': return 'rgba(244, 114, 182, 0.5)'
+    case 'locked': return 'rgba(71, 85, 105, 0.15)'
+  }
+}
+
+/* ================================================================== */
+/*  Page Component                                                     */
+/* ================================================================== */
 
 export default function SkillsPage() {
-  const [hoveredSkill, setHoveredSkill] = useState<Skill | null>(null)
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
+  const [selectedSkill, setSelectedSkill] = useState<SkillNode | null>(null)
+  const [hoveredSkill, setHoveredSkill] = useState<string | null>(null)
+  const diagnosis = useAIDiagnosis(SKILLS)
 
-  const handleGlobalMove = useCallback(
-    (e: React.MouseEvent) => setMousePos({ x: e.clientX, y: e.clientY }),
-    [],
+  // Pan & zoom state
+  const svgRef = useRef<SVGSVGElement>(null)
+  const [viewBox, setViewBox] = useState({ x: 0, y: 0, w: 1000, h: 600 })
+  const [isPanning, setIsPanning] = useState(false)
+  const panStart = useRef({ x: 0, y: 0, vx: 0, vy: 0 })
+
+  // Dragging nodes
+  const [draggedNode, setDraggedNode] = useState<string | null>(null)
+  const [nodePositions, setNodePositions] = useState<Record<string, { x: number; y: number }>>(
+    () => Object.fromEntries(SKILLS.map(s => [s.id, { ...s.position }]))
   )
 
-  // Category summary
-  const categories = useMemo(() => {
-    const map = new Map<string, { total: number; avg: number }>()
+  const handleWheel = useCallback((_e: React.WheelEvent) => {
+    // Zoom disabled on scroll — use +/− buttons instead
+  }, [])
+
+  const handlePanStart = useCallback((e: React.MouseEvent) => {
+    if (draggedNode) return
+    setIsPanning(true)
+    panStart.current = { x: e.clientX, y: e.clientY, vx: viewBox.x, vy: viewBox.y }
+  }, [draggedNode, viewBox])
+
+  const handlePanMove = useCallback((e: React.MouseEvent) => {
+    if (draggedNode && svgRef.current) {
+      // Drag node
+      const rect = svgRef.current.getBoundingClientRect()
+      const scaleX = viewBox.w / rect.width
+      const scaleY = viewBox.h / rect.height
+      const nx = viewBox.x + (e.clientX - rect.left) * scaleX
+      const ny = viewBox.y + (e.clientY - rect.top) * scaleY
+      setNodePositions(prev => ({ ...prev, [draggedNode]: { x: nx, y: ny } }))
+      return
+    }
+    if (!isPanning) return
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const scaleX = viewBox.w / rect.width
+    const scaleY = viewBox.h / rect.height
+    const dx = (e.clientX - panStart.current.x) * scaleX
+    const dy = (e.clientY - panStart.current.y) * scaleY
+    setViewBox(vb => ({ ...vb, x: panStart.current.vx - dx, y: panStart.current.vy - dy }))
+  }, [isPanning, draggedNode, viewBox])
+
+  const handlePanEnd = useCallback(() => {
+    setIsPanning(false)
+    setDraggedNode(null)
+  }, [])
+
+  // Category stats
+  const categoryStats = useMemo(() => {
+    const map = new Map<string, { total: number; mastered: number; struggling: number; locked: number }>()
     for (const s of SKILLS) {
-      const entry = map.get(s.category) || { total: 0, avg: 0 }
+      const entry = map.get(s.category) || { total: 0, mastered: 0, struggling: 0, locked: 0 }
       entry.total++
-      entry.avg += s.mastery
+      entry[s.state]++
       map.set(s.category, entry)
     }
-    map.forEach((v) => (v.avg = Math.round(v.avg / v.total)))
     return Array.from(map.entries())
   }, [])
 
   return (
-    <main
-      className="relative z-10 min-h-screen px-4 py-6 sm:px-6"
-      onMouseMove={handleGlobalMove}
-    >
+    <main className="relative z-10 min-h-screen px-4 py-6 sm:px-6">
       {/* Nav */}
-      <nav className="mx-auto mb-6 flex max-w-7xl items-center justify-between">
+      <nav className="mx-auto mb-6 flex max-w-7xl items-center gap-8">
         <Link
           href="/"
           className="font-mono text-sm uppercase tracking-[0.3em] text-primary/80 transition-colors hover:text-primary"
@@ -278,181 +419,592 @@ export default function SkillsPage() {
           [ KNOWLEDGE_MAP ]
         </h1>
         <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground/50">
-          Retention matrix — interactive constellation view
+          Interactive skill graph — retention decay · session evidence · AI diagnosis
         </p>
       </div>
 
-      {/* Main content */}
+      {/* ── AI Diagnosis Panel ──────────────────────────────────── */}
+      <div className="mx-auto mb-6 max-w-7xl">
+        <GlassPanel className="p-5">
+          <div className="flex items-start gap-1.5 mb-4">
+            <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-cyan-400/80">◆ AI Diagnosis</span>
+            <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground/40 ml-auto">
+              overall mastery: {diagnosis.overallMastery}%
+            </span>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            {/* Strengths */}
+            <div className="rounded-xl border border-emerald-500/15 bg-emerald-500/5 px-4 py-3">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="h-2 w-2 rounded-full bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.5)]" />
+                <span className="font-mono text-[10px] uppercase tracking-widest text-emerald-300/80">Top Strengths</span>
+              </div>
+              <p className="font-mono text-[11px] text-foreground/80 leading-relaxed">
+                Strong at <span className="text-cyan-300">{diagnosis.strengths}</span>
+              </p>
+            </div>
+
+            {/* Blindspot */}
+            <div className="rounded-xl border border-pink-500/30 bg-pink-500/10 px-4 py-3 shadow-[0_0_15px_rgba(244,114,182,0.1)]">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="h-2 w-2 rounded-full bg-pink-400 shadow-[0_0_8px_rgba(244,114,182,0.7)] animate-pulse" />
+                <span className="font-mono text-[10px] uppercase tracking-widest text-pink-300 font-semibold">Primary Blindspot</span>
+              </div>
+              {diagnosis.blindspot && (
+                <p className="font-mono text-[11px] text-foreground/90 leading-relaxed">
+                  Struggling with <span className="text-pink-300 font-semibold underline decoration-pink-500/40 underline-offset-4">{diagnosis.blindspot.label}</span>
+                  {' — '}confusion score: <span className="text-pink-300 font-bold">{diagnosis.blindspot.confusionScore}%</span>
+                </p>
+              )}
+            </div>
+
+            {/* Recommended Challenge */}
+            <div className="rounded-xl border border-violet-500/15 bg-violet-500/5 px-4 py-3">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="h-2 w-2 rounded-full bg-violet-400" />
+                <span className="font-mono text-[10px] uppercase tracking-widest text-violet-300/80">Recommended Next</span>
+              </div>
+              {diagnosis.weakest && (
+                <>
+                  <p className="font-mono text-[11px] text-foreground/80 leading-relaxed mb-2">
+                    Focus on <span className="text-violet-300">{diagnosis.weakest.label}</span> — only {diagnosis.weakest.mastery}% mastery
+                  </p>
+                  <Link
+                    href="/arena"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-violet-400/40 bg-violet-500/15 px-3 py-1 font-mono text-[9px] uppercase tracking-widest text-violet-300 transition-all hover:bg-violet-500/25 hover:border-violet-400/60"
+                  >
+                    ⚡ Start Challenge
+                  </Link>
+                </>
+              )}
+            </div>
+          </div>
+        </GlassPanel>
+      </div>
+
+      {/* ── Main Content Grid ──────────────────────────────────── */}
       <div className="mx-auto grid max-w-7xl gap-4 lg:grid-cols-[1fr_280px]">
-        {/* 3D Canvas */}
-        <GlassPanel label="constellation.3d" className="relative h-[600px]">
+
+        {/* ── 2D SVG Graph Canvas ─────────────────────────────── */}
+        <GlassPanel label="knowledge.graph" className="relative h-[580px]">
           <div className="absolute inset-0 pt-6">
-            <Canvas
-              camera={{ position: [0, 2, 8], fov: 45 }}
-              gl={{ antialias: true, alpha: true }}
-              style={{ background: 'transparent' }}
-              dpr={[1, 1.5]}
+            {/* SVG-based graph */}
+            <svg
+              ref={svgRef}
+              viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
+              className="h-full w-full select-none"
+              style={{ cursor: isPanning ? 'grabbing' : draggedNode ? 'grabbing' : 'grab' }}
+              onWheel={handleWheel}
+              onMouseDown={handlePanStart}
+              onMouseMove={handlePanMove}
+              onMouseUp={handlePanEnd}
+              onMouseLeave={handlePanEnd}
             >
-              <SceneLighting />
-              <CameraAutoRotate />
-              <ConstellationEdges />
-              {SKILLS.map((skill) => (
-                <SkillNode
-                  key={skill.id}
-                  skill={skill}
-                  hovered={hoveredSkill?.id === skill.id}
-                  onHover={() => setHoveredSkill(skill)}
-                  onUnhover={() => setHoveredSkill(null)}
-                />
+              <defs>
+                {/* Glow filters */}
+                <filter id="glow-cyan" x="-50%" y="-50%" width="200%" height="200%">
+                  <feGaussianBlur stdDeviation="6" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+                <filter id="glow-pink" x="-50%" y="-50%" width="200%" height="200%">
+                  <feGaussianBlur stdDeviation="5" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+                <filter id="glow-edge" x="-20%" y="-20%" width="140%" height="140%">
+                  <feGaussianBlur stdDeviation="2" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+                {/* Animated dash for locked edges */}
+                <style>{`
+                  @keyframes dashFlow {
+                    to { stroke-dashoffset: -20; }
+                  }
+                  @keyframes pulsePink {
+                    0%, 100% { opacity: 0.5; }
+                    50% { opacity: 1; }
+                  }
+                  @keyframes glowPulse {
+                    0%, 100% { r: ${NODE_RADIUS + 8}; opacity: 0.25; }
+                    50% { r: ${NODE_RADIUS + 14}; opacity: 0.08; }
+                  }
+                `}</style>
+              </defs>
+
+              {/* ── Edges ─────────────────────────────────────── */}
+              {EDGES.map(([fromId, toId]) => {
+                const from = nodePositions[fromId]
+                const to = nodePositions[toId]
+                if (!from || !to) return null
+                const fromSkill = SKILLS.find(s => s.id === fromId)!
+                const toSkill = SKILLS.find(s => s.id === toId)!
+                const isLocked = toSkill.state === 'locked'
+                const isMasteredPath = fromSkill.state === 'mastered' && toSkill.state === 'mastered'
+
+                return (
+                  <line
+                    key={`${fromId}-${toId}`}
+                    x1={from.x} y1={from.y}
+                    x2={to.x} y2={to.y}
+                    stroke={isMasteredPath ? '#34d399' : isLocked ? '#334155' : '#475569'}
+                    strokeWidth={isMasteredPath ? 2 : 1.5}
+                    strokeDasharray={isLocked ? '6 4' : 'none'}
+                    opacity={isMasteredPath ? 0.5 : isLocked ? 0.3 : 0.35}
+                    filter={isMasteredPath ? 'url(#glow-edge)' : undefined}
+                    style={isLocked ? { animation: 'dashFlow 1.5s linear infinite' } : undefined}
+                  />
+                )
+              })}
+
+              {/* ── Nodes ─────────────────────────────────────── */}
+              {SKILLS.map(skill => {
+                const pos = nodePositions[skill.id]
+                if (!pos) return null
+                const color = getNodeColor(skill.state)
+                const glowColor = getNodeGlowColor(skill.state)
+                const decay = getDecayLevel(skill.lastPracticed)
+                const opacity = skill.state === 'locked' ? 0.4 : getDecayOpacity(decay)
+                const isHovered = hoveredSkill === skill.id
+                const isSelected = selectedSkill?.id === skill.id
+
+                return (
+                  <g
+                    key={skill.id}
+                    style={{ cursor: 'pointer', opacity }}
+                    onMouseEnter={() => setHoveredSkill(skill.id)}
+                    onMouseLeave={() => setHoveredSkill(null)}
+                    onMouseDown={(e) => {
+                      e.stopPropagation()
+                      setDraggedNode(skill.id)
+                    }}
+                    onClick={(e) => {
+                      if (!draggedNode) {
+                        e.stopPropagation()
+                        setSelectedSkill(skill)
+                      }
+                    }}
+                  >
+                    {/* Outer glow aura for mastered */}
+                    {skill.state === 'mastered' && (
+                      <circle
+                        cx={pos.x} cy={pos.y}
+                        r={NODE_RADIUS + 10}
+                        fill="none"
+                        stroke={color}
+                        strokeWidth={1}
+                        opacity={0.2}
+                        style={{ animation: 'glowPulse 3s ease-in-out infinite' }}
+                      />
+                    )}
+
+                    {/* Struggling pulse ring */}
+                    {skill.state === 'struggling' && (
+                      <circle
+                        cx={pos.x} cy={pos.y}
+                        r={NODE_RADIUS + 6}
+                        fill="none"
+                        stroke="#f472b6"
+                        strokeWidth={1.5}
+                        style={{ animation: 'pulsePink 2s ease-in-out infinite' }}
+                      />
+                    )}
+
+                    {/* Main node circle */}
+                    <circle
+                      cx={pos.x} cy={pos.y}
+                      r={NODE_RADIUS}
+                      fill={skill.state === 'locked' ? 'transparent' : `${color}15`}
+                      stroke={color}
+                      strokeWidth={isHovered || isSelected ? 2.5 : skill.state === 'locked' ? 1 : 1.5}
+                      strokeDasharray={skill.state === 'locked' ? '5 3' : 'none'}
+                      filter={skill.state === 'mastered' ? 'url(#glow-cyan)' : skill.state === 'struggling' ? 'url(#glow-pink)' : undefined}
+                    />
+
+                    {/* Mastery fill arc (background indicator) */}
+                    {skill.state !== 'locked' && (
+                      <circle
+                        cx={pos.x} cy={pos.y}
+                        r={NODE_RADIUS - 5}
+                        fill="none"
+                        stroke={color}
+                        strokeWidth={3}
+                        strokeDasharray={`${(skill.mastery / 100) * (2 * Math.PI * (NODE_RADIUS - 5))} ${2 * Math.PI * (NODE_RADIUS - 5)}`}
+                        strokeDashoffset={(2 * Math.PI * (NODE_RADIUS - 5)) * 0.25}
+                        strokeLinecap="round"
+                        opacity={0.35}
+                      />
+                    )}
+
+                    {/* State icon */}
+                    <text
+                      x={pos.x} y={pos.y - 2}
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      fontSize={skill.state === 'locked' ? 14 : 12}
+                      fill={color}
+                    >
+                      {skill.state === 'locked' ? '🔒' : skill.state === 'struggling' ? '⚠️' : '⚡'}
+                    </text>
+
+                    {/* Label */}
+                    <text
+                      x={pos.x} y={pos.y + NODE_RADIUS + 14}
+                      textAnchor="middle"
+                      fontSize={10}
+                      fontFamily="ui-monospace, monospace"
+                      fontWeight={600}
+                      letterSpacing="0.08em"
+                      fill={skill.state === 'mastered' ? '#a5f3fc' : skill.state === 'struggling' ? '#fbcfe8' : '#94a3b8'}
+                    >
+                      {skill.label}
+                    </text>
+
+                    {/* Mastery % badge */}
+                    {skill.state !== 'locked' && (
+                      <text
+                        x={pos.x} y={pos.y + NODE_RADIUS + 26}
+                        textAnchor="middle"
+                        fontSize={8}
+                        fontFamily="ui-monospace, monospace"
+                        fill={color}
+                        opacity={0.6}
+                      >
+                        {skill.mastery}%
+                      </text>
+                    )}
+
+                    {/* Decay indicator (rusty ring) */}
+                    {decay === 'rusty' && skill.state !== 'locked' && (
+                      <circle
+                        cx={pos.x} cy={pos.y}
+                        r={NODE_RADIUS + 3}
+                        fill="none"
+                        stroke="#78350f"
+                        strokeWidth={1}
+                        strokeDasharray="3 3"
+                        opacity={0.5}
+                      />
+                    )}
+                    {decay === 'fading' && skill.state !== 'locked' && (
+                      <circle
+                        cx={pos.x} cy={pos.y}
+                        r={NODE_RADIUS + 3}
+                        fill="none"
+                        stroke="#92400e"
+                        strokeWidth={0.8}
+                        strokeDasharray="6 4"
+                        opacity={0.3}
+                      />
+                    )}
+                  </g>
+                )
+              })}
+            </svg>
+
+            {/* Graph legend overlay */}
+            <div className="absolute bottom-3 left-4 flex items-center gap-4 rounded-lg border border-white/5 bg-black/40 px-3 py-2 backdrop-blur-md">
+              {[
+                { icon: '⚡', color: 'text-cyan-400', label: 'Mastered' },
+                { icon: '⚠️', color: 'text-pink-400', label: 'Struggling' },
+                { icon: '🔒', color: 'text-slate-500', label: 'Locked' },
+              ].map(item => (
+                <span key={item.label} className="flex items-center gap-1.5">
+                  <span className="text-xs">{item.icon}</span>
+                  <span className={`font-mono text-[9px] uppercase tracking-widest ${item.color}`}>{item.label}</span>
+                </span>
               ))}
-            </Canvas>
+              <span className="ml-2 flex items-center gap-1.5">
+                <span className="h-1.5 w-5 rounded-full bg-gradient-to-r from-amber-800/60 to-amber-800/20" />
+                <span className="font-mono text-[9px] uppercase tracking-widest text-amber-700">Fading</span>
+              </span>
+            </div>
+
+            {/* Zoom controls */}
+            <div className="absolute bottom-3 right-4 flex flex-col gap-1">
+              <button
+                onClick={() => setViewBox(vb => {
+                  const cx = vb.x + vb.w / 2, cy = vb.y + vb.h / 2
+                  const nw = Math.max(400, vb.w * 0.85), nh = Math.max(240, vb.h * 0.85)
+                  return { x: cx - nw / 2, y: cy - nh / 2, w: nw, h: nh }
+                })}
+                className="flex h-6 w-6 items-center justify-center rounded border border-white/10 bg-black/40 font-mono text-xs text-white/60 hover:bg-white/10 hover:text-white transition-all"
+              >+</button>
+              <button
+                onClick={() => setViewBox(vb => {
+                  const cx = vb.x + vb.w / 2, cy = vb.y + vb.h / 2
+                  const nw = Math.min(2000, vb.w * 1.15), nh = Math.min(1200, vb.h * 1.15)
+                  return { x: cx - nw / 2, y: cy - nh / 2, w: nw, h: nh }
+                })}
+                className="flex h-6 w-6 items-center justify-center rounded border border-white/10 bg-black/40 font-mono text-xs text-white/60 hover:bg-white/10 hover:text-white transition-all"
+              >−</button>
+            </div>
           </div>
         </GlassPanel>
 
-        {/* Sidebar: category breakdown */}
+        {/* ── Sidebar ─────────────────────────────────────────── */}
         <div className="flex flex-col gap-4">
-          {categories.map(([cat, data]) => (
+          {/* Category breakdown */}
+          {categoryStats.map(([cat, data]) => (
             <GlassPanel key={cat} className="px-5 py-4">
               <h3 className="font-mono text-[11px] uppercase tracking-[0.2em] text-foreground/80">
                 {cat}
               </h3>
               <div className="mt-3 flex items-end justify-between">
-                <span className="font-mono text-2xl tabular-nums text-foreground">
-                  {data.avg}%
-                </span>
-                <span className="font-mono text-[10px] text-muted-foreground/50">
-                  {data.total} skills
-                </span>
-              </div>
-              <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/5">
-                <motion.div
-                  className="h-full rounded-full"
-                  initial={{ width: 0 }}
-                  animate={{ width: `${data.avg}%` }}
-                  transition={{ duration: 1.2, ease: 'easeOut' }}
-                  style={{
-                    background:
-                      data.avg >= 75
-                        ? 'oklch(0.78 0.09 165)'
-                        : data.avg >= 50
-                          ? 'oklch(0.78 0.12 90)'
-                          : 'oklch(0.7 0.12 30)',
-                  }}
-                />
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-lg tabular-nums text-foreground">{data.total}</span>
+                  <span className="font-mono text-[9px] text-muted-foreground/50">skills</span>
+                </div>
+                <div className="flex gap-2">
+                  {data.mastered > 0 && (
+                    <span className="flex items-center gap-1 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2 py-0.5 font-mono text-[9px] text-cyan-300">
+                      ⚡ {data.mastered}
+                    </span>
+                  )}
+                  {data.struggling > 0 && (
+                    <span className="flex items-center gap-1 rounded-full border border-pink-400/20 bg-pink-400/10 px-2 py-0.5 font-mono text-[9px] text-pink-300">
+                      ⚠️ {data.struggling}
+                    </span>
+                  )}
+                  {data.locked > 0 && (
+                    <span className="flex items-center gap-1 rounded-full border border-slate-400/20 bg-slate-400/10 px-2 py-0.5 font-mono text-[9px] text-slate-400">
+                      🔒 {data.locked}
+                    </span>
+                  )}
+                </div>
               </div>
             </GlassPanel>
           ))}
 
-          {/* Legend */}
+          {/* Memory health overview */}
           <GlassPanel className="px-5 py-4">
             <h3 className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/50">
-              Legend
+              Memory Health
             </h3>
-            <div className="mt-3 flex flex-col gap-2">
-              {[
-                { color: 'bg-emerald-400', label: 'Mastered (≥75%)' },
-                { color: 'bg-amber-400', label: 'Progressing (50–74%)' },
-                { color: 'bg-orange-400', label: 'Developing (25–49%)' },
-                { color: 'bg-slate-500', label: 'Untouched (<25%)' },
-              ].map((item) => (
-                <div key={item.label} className="flex items-center gap-2">
-                  <span className={`h-2 w-2 rounded-full ${item.color}`} />
-                  <span className="font-mono text-[10px] text-muted-foreground/60">
-                    {item.label}
-                  </span>
-                </div>
-              ))}
+            <div className="mt-3 flex flex-col gap-2.5">
+              {SKILLS.filter(s => s.state !== 'locked').map(s => {
+                const decay = getDecayLevel(s.lastPracticed)
+                return (
+                  <div key={s.id} className="flex items-center gap-2">
+                    <span className={`h-1.5 w-1.5 rounded-full ${
+                      decay === 'fresh' ? 'bg-cyan-400' : decay === 'fading' ? 'bg-amber-400' : 'bg-red-400'
+                    }`} />
+                    <span className="flex-1 font-mono text-[10px] text-foreground/70 truncate">{s.label}</span>
+                    <span className={`font-mono text-[9px] ${
+                      decay === 'fresh' ? 'text-cyan-400/60' : decay === 'fading' ? 'text-amber-400/60' : 'text-red-400/60'
+                    }`}>
+                      {s.retention}%
+                    </span>
+                    {/* Mini bar */}
+                    <div className="h-1 w-12 overflow-hidden rounded-full bg-white/5">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{
+                          width: `${s.retention}%`,
+                          background: decay === 'fresh' ? '#22d3ee' : decay === 'fading' ? '#f59e0b' : '#ef4444',
+                        }}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </GlassPanel>
         </div>
       </div>
 
-      {/* Floating hover tooltip */}
+      {/* ── Slide-Over Detail Panel ───────────────────────────── */}
       <AnimatePresence>
-        {hoveredSkill && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9, y: 10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: 10 }}
-            className="glass-card pointer-events-none fixed z-50 w-72 p-5"
-            style={{
-              left: Math.min(mousePos.x + 20, window.innerWidth - 310),
-              top: Math.min(mousePos.y - 10, window.innerHeight - 300),
-            }}
-          >
-            <div className="flex items-center justify-between">
-              <h4 className="font-mono text-xs uppercase tracking-[0.2em] text-foreground">
-                {hoveredSkill.label}
-              </h4>
-              <span className="font-mono text-[9px] text-muted-foreground/50">
-                {hoveredSkill.category}
-              </span>
-            </div>
+        {selectedSkill && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+              onClick={() => setSelectedSkill(null)}
+            />
 
-            {/* Mastery bar */}
-            <div className="mt-3">
-              <div className="flex justify-between font-mono text-[10px]">
-                <span className="text-muted-foreground/60">Mastery</span>
-                <span className="text-foreground">{hoveredSkill.mastery}%</span>
-              </div>
-              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/5">
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{
-                    width: `${hoveredSkill.mastery}%`,
-                    background: 'oklch(0.78 0.09 165)',
-                  }}
-                />
-              </div>
-            </div>
+            {/* Panel */}
+            <motion.div
+              initial={{ x: '100%', opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: '100%', opacity: 0 }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              className="fixed right-0 top-0 z-50 h-full w-full max-w-md overflow-y-auto border-l border-white/10 bg-neutral-950/95 backdrop-blur-2xl"
+            >
+              <div className="p-6">
+                {/* Header */}
+                <div className="flex items-start justify-between mb-6">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-lg">
+                        {selectedSkill.state === 'locked' ? '🔒' : selectedSkill.state === 'struggling' ? '⚠️' : '⚡'}
+                      </span>
+                      <h2 className="font-mono text-sm uppercase tracking-[0.2em] text-foreground">
+                        {selectedSkill.label}
+                      </h2>
+                    </div>
+                    <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground/50">
+                      {selectedSkill.category}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setSelectedSkill(null)}
+                    className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-muted-foreground/50 hover:bg-white/5 hover:text-white transition-all"
+                  >
+                    ✕
+                  </button>
+                </div>
 
-            {/* Retention decay */}
-            <div className="mt-3">
-              <div className="flex justify-between font-mono text-[10px]">
-                <span className="text-muted-foreground/60">Retention</span>
-                <span className={hoveredSkill.retention < 50 ? 'text-pink-300' : 'text-foreground'}>
-                  {hoveredSkill.retention}%
-                </span>
-              </div>
-              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/5">
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{
-                    width: `${hoveredSkill.retention}%`,
-                    background:
-                      hoveredSkill.retention >= 70
-                        ? 'oklch(0.78 0.09 165)'
-                        : hoveredSkill.retention >= 40
-                          ? 'oklch(0.78 0.12 90)'
-                          : 'oklch(0.7 0.1 350)',
-                  }}
-                />
-              </div>
-            </div>
+                {/* Stats Grid */}
+                <div className="grid grid-cols-2 gap-3 mb-6">
+                  {[
+                    { label: 'Mastery', value: `${selectedSkill.mastery}%`, color: 'text-cyan-300' },
+                    { label: 'Retention', value: `${selectedSkill.retention}%`, color: selectedSkill.retention < 50 ? 'text-red-300' : 'text-emerald-300' },
+                    { label: 'Readiness', value: `${selectedSkill.readiness}%`, color: 'text-violet-300' },
+                    { label: 'Confusion', value: `${selectedSkill.confusionScore}%`, color: selectedSkill.confusionScore > 40 ? 'text-amber-300' : 'text-emerald-300' },
+                  ].map(stat => (
+                    <div key={stat.label} className="rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2.5">
+                      <span className="block font-mono text-[9px] uppercase tracking-widest text-muted-foreground/40">{stat.label}</span>
+                      <span className={`block font-mono text-lg tabular-nums ${stat.color}`}>{stat.value}</span>
+                    </div>
+                  ))}
+                </div>
 
-            {/* Interview readiness */}
-            <div className="mt-3">
-              <div className="flex justify-between font-mono text-[10px]">
-                <span className="text-muted-foreground/60">Interview Ready</span>
-                <span className="text-foreground">{hoveredSkill.readiness}%</span>
-              </div>
-              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/5">
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{
-                    width: `${hoveredSkill.readiness}%`,
-                    background: 'oklch(0.7 0.08 220)',
-                  }}
-                />
-              </div>
-            </div>
+                {/* Avg Resolution Time */}
+                <div className="rounded-xl border border-white/5 bg-white/[0.02] px-4 py-3 mb-6">
+                  <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground/40">Avg Time-to-Resolution</span>
+                  <span className="block font-mono text-sm text-foreground mt-1">{selectedSkill.avgResolutionTime}</span>
+                  <span className="block font-mono text-[9px] text-muted-foreground/40 mt-0.5">{selectedSkill.practiceCount} practice sessions · last: {selectedSkill.lastPracticed}</span>
+                </div>
 
-            {/* Meta */}
-            <div className="mt-4 flex justify-between border-t border-white/5 pt-3 font-mono text-[10px] text-muted-foreground/50">
-              <span>{hoveredSkill.practiceCount} sessions</span>
-              <span>Last: {hoveredSkill.lastPracticed}</span>
-            </div>
-          </motion.div>
+                {/* Confidence Health Meter */}
+                <div className="mb-6">
+                  <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground/50">Confidence Health</span>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/5">
+                    <motion.div
+                      className="h-full rounded-full"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${selectedSkill.retention}%` }}
+                      transition={{ duration: 0.8, ease: 'easeOut' }}
+                      style={{
+                        background: selectedSkill.retention >= 70 ? 'linear-gradient(90deg, #22d3ee, #34d399)'
+                          : selectedSkill.retention >= 40 ? 'linear-gradient(90deg, #f59e0b, #fbbf24)'
+                          : 'linear-gradient(90deg, #ef4444, #f87171)',
+                      }}
+                    />
+                  </div>
+                  <div className="mt-1 flex justify-between font-mono text-[9px] text-muted-foreground/40">
+                    <span>{getDecayLevel(selectedSkill.lastPracticed) === 'rusty' ? '⚠ Memory decay detected' : getDecayLevel(selectedSkill.lastPracticed) === 'fading' ? 'Gradually fading' : 'Recently practiced'}</span>
+                    <span>{selectedSkill.retention}%</span>
+                  </div>
+                </div>
+
+                {/* Code Snapshots (Diffs) */}
+                {selectedSkill.codeDiffs.length > 0 && (
+                  <div className="mb-6">
+                    <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground/50">Code Snapshots</span>
+                    {selectedSkill.codeDiffs.map((diff, i) => (
+                      <div key={i} className="mt-3 rounded-xl border border-white/5 overflow-hidden">
+                        <div className="flex items-center justify-between border-b border-white/5 bg-white/[0.02] px-3 py-1.5">
+                          <span className="font-mono text-[9px] text-muted-foreground/40">Before → After</span>
+                          <span className="font-mono text-[8px] text-muted-foreground/30">{diff.timestamp}</span>
+                        </div>
+                        <div className="grid grid-cols-2 divide-x divide-white/5">
+                          <div className="p-3 bg-red-500/[0.03]">
+                            <pre className="font-mono text-[10px] text-red-300/70 whitespace-pre-wrap leading-relaxed">{diff.before}</pre>
+                          </div>
+                          <div className="p-3 bg-emerald-500/[0.03]">
+                            <pre className="font-mono text-[10px] text-emerald-300/70 whitespace-pre-wrap leading-relaxed">{diff.after}</pre>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Voice Reflections */}
+                {selectedSkill.voiceReflections.length > 0 && (
+                  <div className="mb-6">
+                    <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground/50">Voice Reflections</span>
+                    {selectedSkill.voiceReflections.map((text, i) => (
+                      <div key={i} className="mt-3 rounded-xl border border-cyan-400/10 bg-cyan-400/[0.03] px-4 py-3">
+                        <div className="flex items-start gap-2">
+                          <span className="text-cyan-400/60 text-xs mt-0.5">💬</span>
+                          <p className="font-mono text-[11px] text-cyan-200/70 leading-relaxed italic">
+                            &ldquo;{text}&rdquo;
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Bug Timeline */}
+                {selectedSkill.bugTimeline.length > 0 && (
+                  <div className="mb-6">
+                    <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground/50">Bug Timeline</span>
+                    <div className="mt-3 relative pl-4">
+                      {/* Timeline line */}
+                      <div className="absolute left-[5px] top-1 bottom-1 w-px bg-white/10" />
+
+                      {selectedSkill.bugTimeline.map((bug, i) => (
+                        <div key={i} className="relative mb-4 last:mb-0">
+                          {/* Dot */}
+                          <div className="absolute -left-4 top-1 h-2.5 w-2.5 rounded-full border border-emerald-400/40 bg-emerald-400/20" />
+
+                          <div className="ml-2">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-mono text-[9px] text-muted-foreground/30">{bug.timestamp}</span>
+                            </div>
+                            <p className="font-mono text-[10px] text-red-300/60 mb-0.5">
+                              <span className="text-red-400/40">bug:</span> {bug.issue}
+                            </p>
+                            <p className="font-mono text-[10px] text-emerald-300/60">
+                              <span className="text-emerald-400/40">fix:</span> {bug.resolution}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Locked state message */}
+                {selectedSkill.state === 'locked' && (
+                  <div className="rounded-xl border border-slate-500/20 bg-slate-500/5 px-4 py-6 text-center">
+                    <span className="text-2xl mb-2 block">🔒</span>
+                    <p className="font-mono text-[11px] text-slate-400/60">
+                      This concept hasn&apos;t been encountered yet.
+                    </p>
+                    <p className="font-mono text-[10px] text-slate-500/40 mt-1">
+                      Complete prerequisite skills to unlock.
+                    </p>
+                  </div>
+                )}
+
+                {/* Quick action */}
+                {selectedSkill.state !== 'locked' && (
+                  <Link
+                    href="/arena"
+                    className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-400/10 py-3 font-mono text-[10px] uppercase tracking-widest text-cyan-300 transition-all hover:bg-cyan-400/20 hover:border-cyan-400/50"
+                  >
+                    ⚡ Practice {selectedSkill.label}
+                  </Link>
+                )}
+              </div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
     </main>

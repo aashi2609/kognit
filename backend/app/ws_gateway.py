@@ -152,8 +152,8 @@ async def _debounced_analysis(session_id: str, ws: WebSocket, code: str, languag
             "audio": audio_to_base64(audio),
             "format": "mp3",
         })
-    
-    await _send_event(ws, {"type": "ai_state", "state": "idle"})
+    else:
+        await _send_event(ws, {"type": "ai_state", "state": "idle"})
 
 
 async def _handle_audio_in(session_id: str, ws: WebSocket, event: dict):
@@ -224,8 +224,8 @@ async def _handle_audio_in(session_id: str, ws: WebSocket, event: dict):
             "audio": audio_to_base64(audio),
             "format": "mp3",
         })
-    
-    await _send_event(ws, {"type": "ai_state", "state": "idle"})
+    else:
+        await _send_event(ws, {"type": "ai_state", "state": "idle"})
 
 
 async def _send_event(ws: WebSocket, event: dict):

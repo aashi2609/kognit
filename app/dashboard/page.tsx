@@ -838,6 +838,7 @@ export default function DashboardPage() {
         }
       } else if (error_type !== 'infra') {
         addLog('success', '[RUN] ✓ Execution completed')
+        trigger('nod')
       }
     } catch (err: any) {
       clearTimeout(timeoutId)
@@ -908,24 +909,8 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Soft Auth Buttons & Theme Box */}
+        {/* Theme Box */}
         <div className="flex items-center gap-3">
-          <Link
-            href="/login"
-            className="liquid-glass-pill flex items-center gap-2 px-4 py-2 font-sans text-xs font-medium tracking-wide text-white outline-none"
-          >
-            <span className="h-2 w-2 rounded-full bg-slate-300/80 transition-all group-hover:bg-emerald-400 group-hover:shadow-[0_0_8px_#34d399]" />
-            <span>Sign In</span>
-          </Link>
-          
-          <Link
-            href="/signup"
-            className="liquid-glass-pill flex items-center gap-2 px-4 py-2 font-sans text-xs font-medium tracking-wide text-white outline-none"
-          >
-            <span className="h-2 w-2 rounded-full bg-emerald-400 transition-transform group-hover:animate-pulse" />
-            <span>Initialize Account</span>
-          </Link>
-
           <DashboardThemeBox />
         </div>
       </nav>
@@ -1686,7 +1671,7 @@ export default function DashboardPage() {
                 {showSpeechBubble && speechBubbleText && (
                   <motion.div
                     key="speech-bubble"
-                    className="absolute top-3 left-2 right-2 z-30"
+                    className="absolute -top-2 left-2 right-2 z-40"
                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: -5, scale: 0.95 }}
@@ -1749,6 +1734,7 @@ export default function DashboardPage() {
               >
                 <StudentCharacter
                   expression={expression}
+                  isSpeaking={aiState === 'speaking'}
                   className="h-full w-full"
                 />
               </motion.div>
@@ -1786,31 +1772,18 @@ export default function DashboardPage() {
                 {/* Microphone toggle */}
                 <button
                   onClick={() => isMicActive ? stopMic() : startMic()}
-                  className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[9px] uppercase tracking-widest transition-all ${
+                  className={`flex items-center gap-2 rounded-full px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest transition-all duration-200 ${
                     isMicActive
-                      ? 'bg-sky-400/20 text-sky-300 border border-sky-400/40 shadow-[0_0_12px_rgba(56,189,248,0.2)]'
-                      : 'text-muted-foreground/50 hover:text-muted-foreground/80 hover:bg-white/5 border border-transparent'
+                      ? 'bg-sky-400 text-slate-950 font-bold border border-sky-300 shadow-[0_0_16px_rgba(56,189,248,0.5)]'
+                      : 'bg-sky-500/20 text-sky-300 border border-sky-400/50 hover:bg-sky-500/30 hover:border-sky-400 shadow-[0_0_12px_rgba(56,189,248,0.25)]'
                   }`}
-                  title={isMicActive ? 'Microphone active — click to mute' : 'Click to enable voice conversation'}
+                  title={isMicActive ? 'Microphone active — click to mute' : 'Click to start voice conversation'}
                 >
-                  {isMicActive ? (
-                    <motion.svg
-                      className="w-3 h-3"
-                      fill="currentColor"
-                      viewBox="0 0 24 24"
-                      animate={{ scale: [1, 1.2, 1] }}
-                      transition={{ duration: 1, repeat: Infinity }}
-                    >
-                      <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-                      <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-                    </motion.svg>
-                  ) : (
-                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-                      <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-                    </svg>
-                  )}
-                  {isMicActive ? 'live' : 'mic'}
+                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                    <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                  </svg>
+                  {isMicActive ? '● live' : 'talk to me'}
                 </button>
               </div>
             </div>

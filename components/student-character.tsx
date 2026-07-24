@@ -13,12 +13,14 @@ export function StudentCharacter({
   juggle = false,
   eyeTarget,
   coverEyes = false,
+  isSpeaking = false,
   className,
 }: {
   expression?: Expression
   juggle?: boolean
   eyeTarget?: { x: number; y: number }
   coverEyes?: boolean
+  isSpeaking?: boolean
   className?: string
 }) {
   // Compute pupil offsets from eye target
@@ -280,7 +282,7 @@ export function StudentCharacter({
           strokeLinecap="round"
         />
         {/* Mouth */}
-        <Mouth expression={expression} />
+        <Mouth expression={expression} isSpeaking={isSpeaking} />
 
         {/* Panic sweat */}
         {(expression === "panic" || expression === "shock") && (
@@ -651,7 +653,53 @@ function Brows({ expression }: { expression: Expression }) {
   )
 }
 
-function Mouth({ expression }: { expression: Expression }) {
+function Mouth({ expression, isSpeaking }: { expression: Expression; isSpeaking?: boolean }) {
+  if (isSpeaking) {
+    return (
+      <g>
+        {/* Rich phoneme/viseme mouth morph sequence */}
+        <motion.path
+          stroke="oklch(0.35 0.06 20)"
+          strokeWidth="3.2"
+          strokeLinecap="round"
+          fill="oklch(0.32 0.07 20 / 30%)"
+          animate={{
+            d: [
+              "M106 138 Q120 142 134 138 Q120 139 106 138", // Slight open neutral
+              "M104 137 Q120 154 136 137 Q120 143 104 137", // "A/Ah" wide open
+              "M112 137 Q120 148 128 137 Q120 143 112 137", // "O/Oh" rounded cavity
+              "M108 139 L132 139 M108 139 Q120 139 132 139", // "M/P/B" closed press
+              "M105 137 Q120 149 135 137 Q120 140 105 137", // "E/Eh" wide smile open
+              "M110 138 Q120 152 130 138 Q120 144 110 138", // "U/Oo" medium pucker
+            ],
+          }}
+          transition={{
+            duration: 0.8,
+            repeat: Infinity,
+            repeatType: "mirror",
+            ease: "easeInOut",
+          }}
+        />
+        {/* Teeth accent showing dynamically during open vowels */}
+        <motion.path
+          d="M112 138 Q120 140 128 138"
+          fill="none"
+          stroke="white"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          animate={{
+            opacity: [0, 0.9, 0.4, 0, 0.85, 0.2],
+          }}
+          transition={{
+            duration: 0.8,
+            repeat: Infinity,
+            repeatType: "mirror",
+          }}
+        />
+      </g>
+    )
+  }
+
   if (expression === "panic") {
     return (
       <motion.ellipse

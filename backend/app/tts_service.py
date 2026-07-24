@@ -23,9 +23,9 @@ def _generate_tts_sync(text: str, api_key: str) -> bytes | None:
         
         client = ElevenLabs(api_key=api_key)
         
-        # Voice: Sarah (EXAVITQu4vr4xnSDxMaL)
+        # Voice: Adam (pNInz6obpgDQGcFmaJgB) — deep natural male voice
         audio_generator = client.text_to_speech.convert(
-            voice_id="EXAVITQu4vr4xnSDxMaL",
+            voice_id="pNInz6obpgDQGcFmaJgB",
             text=text,
             model_id="eleven_turbo_v2_5",
             output_format="mp3_44100_128",

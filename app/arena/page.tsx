@@ -257,10 +257,19 @@ export default function ArenaPage() {
     ])
   }, [question])
 
-  // Log AI responses to the terminal
+  // AI speech bubble state
+  const [speechBubbleText, setSpeechBubbleText] = useState('')
+  const [showSpeechBubble, setShowSpeechBubble] = useState(false)
+  const speechBubbleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Log AI responses to the terminal + show speech bubble
   useEffect(() => {
     if (aiText) {
       setTerminalLogs(prev => [...prev, { type: 'hint', text: `[AI TUTOR] ${aiText}` }])
+      setSpeechBubbleText(aiText)
+      setShowSpeechBubble(true)
+      if (speechBubbleTimerRef.current) clearTimeout(speechBubbleTimerRef.current)
+      speechBubbleTimerRef.current = setTimeout(() => setShowSpeechBubble(false), 10000)
     }
   }, [aiText])
 
@@ -439,8 +448,7 @@ export default function ArenaPage() {
 
   return (
     <main className="relative z-10 min-h-screen px-4 py-6 sm:px-6">
-      {/* Top Bar Navigation */}
-      <nav className="mx-auto mb-6 flex max-w-7xl items-center justify-between">
+      <nav className="mx-auto mb-6 flex max-w-7xl items-center gap-8">
         <Link
           href="/"
           className="font-mono text-sm uppercase tracking-[0.3em] text-primary/80 transition-colors hover:text-primary"
@@ -862,6 +870,50 @@ export default function ArenaPage() {
             {/* Copilot Character */}
             <GlassPanel label="copilot.state">
               <div className="relative flex h-[280px] items-center justify-center pt-4">
+                {/* ── AI Speech Bubble ── */}
+                <AnimatePresence>
+                  {showSpeechBubble && speechBubbleText && (
+                    <motion.div
+                      key="speech-bubble"
+                      className="absolute -top-2 left-2 right-2 z-40"
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -5, scale: 0.95 }}
+                      transition={{ duration: 0.35, ease: 'easeOut' }}
+                    >
+                      <div
+                        className="relative rounded-xl border border-sky-400/30 bg-sky-950/80 backdrop-blur-md px-4 py-3 shadow-[0_0_20px_rgba(56,189,248,0.15)]"
+                        onClick={() => setShowSpeechBubble(false)}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        {/* Bubble tail */}
+                        <div
+                          className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-0 h-0"
+                          style={{
+                            borderLeft: '8px solid transparent',
+                            borderRight: '8px solid transparent',
+                            borderTop: '8px solid oklch(0.22 0.03 230 / 80%)',
+                          }}
+                        />
+                        <div className="flex items-start gap-2">
+                          <motion.span
+                            className="mt-0.5 text-sky-400 text-sm shrink-0"
+                            animate={{ scale: [1, 1.15, 1] }}
+                            transition={{ duration: 2, repeat: Infinity }}
+                          >
+                            {aiState === 'speaking' ? '🔊' : '💬'}
+                          </motion.span>
+                          <p className="font-mono text-[11px] leading-relaxed text-sky-100/90 line-clamp-4">
+                            {speechBubbleText}
+                          </p>
+                        </div>
+                        <span className="absolute top-1.5 right-2 font-mono text-[8px] text-sky-400/40 uppercase tracking-widest">
+                          click to dismiss
+                        </span>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
                 <div
                   className="pointer-events-none absolute inset-0 rounded-2xl transition-all duration-1000"
                   style={{
@@ -890,6 +942,7 @@ export default function ArenaPage() {
                 >
                   <StudentCharacter
                     expression={charExpression}
+                    isSpeaking={aiState === 'speaking'}
                     className="h-full w-full"
                   />
                 </motion.div>
@@ -927,31 +980,18 @@ export default function ArenaPage() {
                   {/* Microphone toggle */}
                   <button
                     onClick={() => isMicActive ? stopMic() : startMic()}
-                    className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[9px] uppercase tracking-widest transition-all ${
+                    className={`flex items-center gap-2 rounded-full px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest transition-all duration-200 ${
                       isMicActive
-                        ? 'bg-sky-400/20 text-sky-300 border border-sky-400/40 shadow-[0_0_12px_rgba(56,189,248,0.2)]'
-                        : 'text-muted-foreground/50 hover:text-muted-foreground/80 hover:bg-white/5 border border-transparent'
+                        ? 'bg-sky-400 text-slate-950 font-bold border border-sky-300 shadow-[0_0_16px_rgba(56,189,248,0.5)]'
+                        : 'bg-sky-500/20 text-sky-300 border border-sky-400/50 hover:bg-sky-500/30 hover:border-sky-400 shadow-[0_0_12px_rgba(56,189,248,0.25)]'
                     }`}
-                    title={isMicActive ? 'Microphone active — click to mute' : 'Click to enable voice conversation'}
+                    title={isMicActive ? 'Microphone active — click to mute' : 'Click to start voice conversation'}
                   >
-                    {isMicActive ? (
-                      <motion.svg
-                        className="w-3 h-3"
-                        fill="currentColor"
-                        viewBox="0 0 24 24"
-                        animate={{ scale: [1, 1.2, 1] }}
-                        transition={{ duration: 1, repeat: Infinity }}
-                      >
-                        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-                        <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-                      </motion.svg>
-                    ) : (
-                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-                        <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-                      </svg>
-                    )}
-                    {isMicActive ? 'live' : 'mic'}
+                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                      <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                    </svg>
+                    {isMicActive ? '● live' : 'talk to me'}
                   </button>
                 </div>
               </div>
