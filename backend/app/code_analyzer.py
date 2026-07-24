@@ -14,36 +14,42 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# System prompt that makes the AI behave as a Socratic tutor
-SOCRATIC_SYSTEM_PROMPT = """You are Kognit, a Socratic coding tutor. You watch a student write code in real time.
+# System prompt that makes the AI behave as a conversational coding tutor
+SOCRATIC_SYSTEM_PROMPT = """You are Kognit, an AI coding tutor. You watch a student write code in real time and hold a natural back-and-forth conversation about their code.
 
 Your personality:
-- Warm, encouraging, patient — like a friendly teaching assistant
-- You NEVER give the answer directly. Instead, guide the student with hints and questions.
-- Keep responses SHORT (1-3 sentences max). You are speaking aloud, not writing an essay.
-- Use natural conversational language, not formal technical jargon.
+- Warm, encouraging, patient — like a friendly senior developer sitting next to them
+- Conversational and natural — you are speaking aloud, not writing documentation
+- Keep responses SHORT (1-3 sentences max). You will be read via text-to-speech.
+- Use plain language, no jargon. No markdown, no bullet points, no code blocks.
 
-Your job:
-1. PROACTIVE HINTS: When you detect an error, gently point it out without revealing the fix.
-   Example: "Hmm, I notice something on line 5 — take a closer look at the semicolon there."
-2. ANSWERING QUESTIONS: When the student asks you something, give a helpful but guiding response.
-   Example: "Great question! A for-loop would work here too. Think about what your loop variable should start at."
-3. MASTERY CONFIRMATION: When a previously broken piece of code is now correct, celebrate briefly.
-   Example: "Nice, that fixed it! Your logic looks solid now."
+You have TWO distinct modes depending on what the student needs:
 
-CRITICAL RULES - EVERY RESPONSE MUST FOLLOW THESE:
-- NEVER use filler acknowledgment phrases like "great question", "interesting", "good thinking", "that's a good point", or similar generic responses.
-- EVERY response must reference something concrete from the actual code (a line number, variable name, syntax element) or what the student just said.
-- If you cannot reference something specific, your response is invalid — rewrite it with concrete details.
-- When the student asks a direct clarifying question like "what is missing" or "where is the error", give a MORE specific response than your initial hint. Point to the exact line or syntax element.
-- Always respond in plain text. No markdown, no code blocks, no bullet points.
-- Your response will be spoken aloud via text-to-speech, so write like you're talking.
-- If the code looks fine and there's no question, respond with exactly: __SILENT__
-- LANGUAGE-AWARE ERROR DETECTION: Only suggest errors that are valid for the programming language being used:
-  * Python: missing colons after if/for/def/while, indentation errors, mismatched parentheses/brackets, undefined variables
-  * JavaScript/TypeScript/Java/C/C++: missing semicolons, missing braces, mismatched parentheses, undefined variables
-  * NEVER suggest semicolon errors for Python code
-  * NEVER suggest colon errors for C/Java/JavaScript code
+MODE 1 — FACTUAL QUESTIONS (answer directly and honestly):
+When the student asks a yes/no or factual question about their code — like "is there a loop?", "do I have a main function?", "how many variables do I have?" — answer it DIRECTLY and TRUTHFULLY based on what you actually see in the code.
+Examples:
+- "Is there a loop here?" → "No, there's no loop in your current code. You just have a simple sequence of statements."
+- "Do I have a return statement?" → "Yes, you have a return statement on line 7."
+- "Why is this wrong?" → "Line 3 is missing a semicolon. Java requires every statement to end with a semicolon."
+- "What does this function do?" → "Your function on line 2 takes two integers and adds them together."
+
+MODE 2 — ERROR DISCOVERY (gentle Socratic hints):
+When you proactively spot an error and the student hasn't asked about it yet, guide them gently without giving away the fix.
+Example: "Take a look at line 5 — something at the end of that statement looks off."
+
+FOLLOW-UP CONVERSATIONS:
+- If the student asks "why?", "what do you mean?", "can you explain?", or similar — give MORE detail than your last response.
+- Reference the specific element you mentioned before (exact line number, variable name, keyword).
+- Never repeat the same hint twice. Always escalate to more specific information.
+
+CRITICAL RULES:
+- NEVER say "great question", "interesting", "good thinking" or other empty filler phrases.
+- EVERY response must mention something specific from the code: a line number, variable name, keyword, or syntax element.
+- Always respond in plain spoken English. No markdown whatsoever.
+- If the code looks completely fine AND the student asked no question, respond with exactly: __SILENT__
+- LANGUAGE-AWARE: Only flag errors valid for the language being used.
+  Python: colons after if/for/def/while, indentation, mismatched brackets — NEVER semicolons.
+  Java/C/C++/JavaScript/TypeScript: semicolons, braces, parentheses — NEVER colons after control flow.
 """
 
 
@@ -61,9 +67,8 @@ async def analyze_code(
     # Build the messages for the LLM
     messages = [{"role": "system", "content": SOCRATIC_SYSTEM_PROMPT}]
     
-    # Add conversation history (last 3 turns for immediate context)
-    # Include last 6 messages (3 back-and-forth exchanges)
-    recent_messages = conversation_history[-6:] if len(conversation_history) > 0 else []
+    # Include last 10 messages (5 back-and-forth exchanges) for rich follow-up context
+    recent_messages = conversation_history[-10:] if conversation_history else []
     for msg in recent_messages:
         messages.append({"role": msg["role"], "content": msg["content"]})
     
@@ -73,46 +78,81 @@ async def analyze_code(
     # Add numbered code for easier line reference
     code_lines = code.split('\n')
     numbered_code = '\n'.join(f"{i+1:3d} | {line}" for i, line in enumerate(code_lines))
-    context_parts.append(f"The student is writing {language} code. Here is their current code with line numbers:\n```\n{numbered_code}\n```")
+    context_parts.append(
+        f"The student is writing {language} code. Here is their current code with line numbers:\n"
+        f"```\n{numbered_code}\n```"
+    )
     
     if last_error:
-        context_parts.append(f"Previously detected error: {last_error}")
+        context_parts.append(f"The last issue you pointed out was: \"{last_error}\"")
     
-    # Detect direct clarifying questions (escalation signals)
-    is_direct_question = False
+    # Classify the question type so the AI knows which mode to use
     if user_question:
-        question_lower = user_question.lower()
-        clarifying_keywords = ["what is", "where is", "which", "what's", "where's", "show me", "tell me", "what line", "where"]
-        if any(keyword in question_lower for keyword in clarifying_keywords):
-            is_direct_question = True
+        q = user_question.lower()
         
-        if is_direct_question:
-            context_parts.append(f"IMPORTANT: The student is asking a DIRECT clarifying question: \"{user_question}\"")
-            context_parts.append("This is an escalation signal. Give a MORE SPECIFIC response than before. Reference the exact line number or syntax element. Do not repeat your previous hint.")
+        factual_triggers = [
+            "is there", "do i have", "do i", "is this", "are there", "does this",
+            "how many", "what is", "what's", "where is", "which line", "why is",
+            "why does", "what does", "explain", "why", "tell me", "show me",
+            "what type", "what kind", "can you see", "do you see", "what's wrong",
+            "whats wrong", "what error", "is it", "does it",
+        ]
+        followup_triggers = [
+            "what do you mean", "more detail", "elaborate", "huh",
+            "i don't understand", "what exactly", "why exactly", "say that again",
+        ]
+        
+        is_factual = any(kw in q for kw in factual_triggers)
+        is_followup = any(kw in q for kw in followup_triggers)
+        
+        if is_factual:
+            context_parts.append(
+                f"STUDENT QUESTION: \"{user_question}\"\n"
+                f"This is a factual question. Answer it DIRECTLY and HONESTLY based on what you actually see "
+                f"in the code above. Do not be evasive or Socratic. If there is no loop, say so. "
+                f"If there is a bug, name exactly what and where it is."
+            )
+        elif is_followup:
+            context_parts.append(
+                f"STUDENT FOLLOW-UP: \"{user_question}\"\n"
+                f"The student wants more detail about what you previously said. Give a more specific explanation — "
+                f"name the exact line number, variable, keyword, or language rule involved. "
+                f"Do not repeat your previous response verbatim."
+            )
         else:
-            context_parts.append(f"The student just said: \"{user_question}\"")
+            context_parts.append(
+                f"STUDENT SAID: \"{user_question}\"\n"
+                f"Respond naturally and helpfully based on their code and what they said."
+            )
     else:
-        context_parts.append("The student just updated their code. Check if there are new errors, if a previous error was fixed, or if everything looks fine.")
-    
-    # Build conversation recap for context
-    if len(recent_messages) >= 2:
-        last_exchange = []
-        for msg in recent_messages[-2:]:
-            role_label = "Student" if msg["role"] == "user" else "You"
-            last_exchange.append(f"{role_label}: {msg['content']}")
-        context_parts.append(f"Recent conversation:\n" + "\n".join(last_exchange))
+        context_parts.append(
+            "The student just updated their code. Scan it for errors or issues. "
+            "If the code looks correct and nothing is notably wrong, respond with exactly: __SILENT__"
+        )
     
     messages.append({"role": "user", "content": "\n\n".join(context_parts)})
     
     # Route to the available LLM
     response_text = await _call_llm(messages)
     
-    # If LLMs are unavailable or quota-exhausted (e.g. 429), use smart Socratic fallback
+    # If LLMs are unavailable or quota-exhausted, use smart Socratic fallback
     if not response_text:
         response_text = _heuristic_socratic_fallback(code, language, last_error, user_question)
 
     if response_text and response_text.strip() == "__SILENT__":
         return None
+    
+    # Ensure response ends on a complete sentence — never cut off mid-word
+    if response_text:
+        response_text = response_text.strip()
+        if response_text and response_text[-1] not in '.!?':
+            last_end = max(
+                response_text.rfind('.'),
+                response_text.rfind('!'),
+                response_text.rfind('?'),
+            )
+            if last_end > len(response_text) // 2:
+                response_text = response_text[:last_end + 1]
     
     return response_text
 
@@ -267,57 +307,59 @@ async def _call_llm(messages: list[dict]) -> str | None:
 
 
 async def _call_gemini(api_key: str, messages: list[dict]) -> str | None:
-    """Call Gemini API using the google-genai SDK with fast fallback on quota exhaustion."""
+    """Call Gemini API using direct httpx REST calls (avoids SDK import issues)."""
     import httpx
+    import json
 
-    # On some corporate networks (e.g. Zscaler), SSL inspection replaces certificates
-    # with a company-signed cert that Python's bundled CA store doesn't trust.
-    # We disable SSL verification here since the API key provides authentication.
     _ssl_verify = os.getenv("KOGNIT_SSL_VERIFY", "0") not in ("0", "false", "no")
 
-    models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash"]
-    
-    for model_name in models_to_try:
-        try:
-            from google import genai
-            from google.genai import types
+    # Extract system prompt and build Gemini contents list
+    system_instruction = ""
+    contents = []
+    for msg in messages:
+        if msg["role"] == "system":
+            system_instruction = msg["content"]
+        else:
+            role = "user" if msg["role"] == "user" else "model"
+            contents.append({"role": role, "parts": [{"text": msg["content"]}]})
 
-            async_client = httpx.AsyncClient(verify=_ssl_verify)
-            client = genai.Client(
-                api_key=api_key,
-                http_options=types.HttpOptions(httpx_async_client=async_client),
-            )
-            
-            system_instruction = ""
-            contents = []
-            for msg in messages:
-                if msg["role"] == "system":
-                    system_instruction = msg["content"]
+    request_body = {
+        "contents": contents,
+        "generationConfig": {
+            "maxOutputTokens": 400,
+            "temperature": 0.7,
+        },
+    }
+    if system_instruction:
+        request_body["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": api_key,
+    }
+
+    models_to_try = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-2.0-flash-lite", "gemini-2.0-flash"]
+
+    async with httpx.AsyncClient(verify=_ssl_verify, timeout=20) as client:
+        for model_name in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+            try:
+                response = await client.post(url, headers=headers, json=request_body)
+                if response.status_code == 200:
+                    data = response.json()
+                    return data["candidates"][0]["content"]["parts"][0]["text"]
+                elif response.status_code == 429:
+                    print(f"[KOGNIT] Gemini ({model_name}): quota exhausted, trying next model...")
+                    continue
                 else:
-                    role = "user" if msg["role"] == "user" else "model"
-                    contents.append(
-                        types.Content(
-                            role=role,
-                            parts=[types.Part.from_text(text=msg["content"])]
-                        )
-                    )
-            
-            response = await client.aio.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    max_output_tokens=200,
-                    temperature=0.7,
-                )
-            )
-            return response.text
-        except Exception as e:
-            error_str = str(e)
-            print(f"[KOGNIT] Gemini ({model_name}) limit/error: {error_str[:120]}...")
-            continue
-    
-    print("[KOGNIT] Gemini unavailable (quota/key issue). Using Socratic fallback.")
+                    err = response.json().get("error", {}).get("message", "")[:100]
+                    print(f"[KOGNIT] Gemini ({model_name}) error {response.status_code}: {err}")
+                    continue
+            except Exception as e:
+                print(f"[KOGNIT] Gemini ({model_name}) exception: {str(e)[:100]}")
+                continue
+
+    print("[KOGNIT] All Gemini models exhausted. Using Socratic fallback.")
     return None
 
 
@@ -329,7 +371,7 @@ async def _call_openai(api_key: str, messages: list[dict]) -> str:
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,
-            max_tokens=200,
+            max_tokens=400,
             temperature=0.7,
         )
         return response.choices[0].message.content or ""
@@ -357,7 +399,7 @@ async def _call_anthropic(api_key: str, messages: list[dict]) -> str:
             model="claude-sonnet-4-20250514",
             system=system_msg,
             messages=chat_messages,
-            max_tokens=200,
+            max_tokens=400,
         )
         return response.content[0].text
     except Exception as e:
