@@ -9,10 +9,17 @@ drives proactive AI interventions.
 from __future__ import annotations
 
 import os
-import json
+import time
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# ── Circuit breaker ───────────────────────────────────────────────────
+# Tracks when ALL Gemini text-analysis models were last found exhausted.
+# While time.time() < _gemini_text_exhausted_until, we skip straight to
+# the heuristic fallback without firing a single HTTP request.
+_gemini_text_exhausted_until: float = 0.0
+GEMINI_COOLDOWN_SECS = 120  # 2-minute backoff after full quota exhaustion
 
 # System prompt that makes the AI behave as a conversational coding tutor
 SOCRATIC_SYSTEM_PROMPT = """You are Kognit, an AI coding tutor. You watch a student write code in real time and hold a natural back-and-forth conversation about their code.
@@ -157,6 +164,190 @@ async def analyze_code(
     return response_text
 
 
+import re as _re
+_SENTENCE_END = _re.compile(r'(?<=[.!?])\s+')
+
+async def analyze_code_stream(
+    code: str,
+    language: str,
+    conversation_history: list[dict],
+    last_error: str | None = None,
+    user_question: str | None = None,
+):
+    """
+    Async generator that yields completed sentences as they arrive from the
+    Gemini SSE stream, enabling sentence-by-sentence TTS without waiting for
+    the full response.
+
+    Falls back to yielding the full heuristic response in one shot when the
+    LLM is unavailable.
+    """
+    messages = [{"role": "system", "content": SOCRATIC_SYSTEM_PROMPT}]
+    recent_messages = conversation_history[-10:] if conversation_history else []
+    for msg in recent_messages:
+        messages.append({"role": msg["role"], "content": msg["content"]})
+
+    context_parts = []
+    code_lines = code.split('\n')
+    numbered_code = '\n'.join(f"{i+1:3d} | {line}" for i, line in enumerate(code_lines))
+    context_parts.append(
+        f"The student is writing {language} code. Here is their current code with line numbers:\n"
+        f"```\n{numbered_code}\n```"
+    )
+    if last_error:
+        context_parts.append(f"The last issue you pointed out was: \"{last_error}\"")
+    if user_question:
+        q = user_question.lower()
+        factual_triggers = [
+            "is there", "do i have", "do i", "is this", "are there", "does this",
+            "how many", "what is", "what's", "where is", "which line", "why is",
+            "why does", "what does", "explain", "why", "tell me", "show me",
+            "what type", "what kind", "can you see", "do you see", "what's wrong",
+            "whats wrong", "what error", "is it", "does it",
+        ]
+        followup_triggers = [
+            "what do you mean", "more detail", "elaborate", "huh",
+            "i don't understand", "what exactly", "why exactly", "say that again",
+        ]
+        is_factual = any(kw in q for kw in factual_triggers)
+        is_followup = any(kw in q for kw in followup_triggers)
+        if is_factual:
+            context_parts.append(
+                f"STUDENT QUESTION: \"{user_question}\"\n"
+                f"Answer DIRECTLY and HONESTLY based on what you actually see in the code."
+            )
+        elif is_followup:
+            context_parts.append(
+                f"STUDENT FOLLOW-UP: \"{user_question}\"\n"
+                f"Give a more specific explanation — name the exact line, variable, or rule involved."
+            )
+        else:
+            context_parts.append(f"STUDENT SAID: \"{user_question}\"")
+    else:
+        context_parts.append(
+            "The student just updated their code. Scan it for errors. "
+            "If correct, respond with exactly: __SILENT__"
+        )
+    messages.append({"role": "user", "content": "\n\n".join(context_parts)})
+
+    # Try streaming from Gemini
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    streamed_any = False
+
+    if gemini_key and time.time() >= _gemini_text_exhausted_until:
+        async for sentence in _stream_gemini_sentences(gemini_key, messages):
+            if sentence.strip() == "__SILENT__":
+                return
+            streamed_any = True
+            yield sentence
+        if streamed_any:
+            return
+
+    # Heuristic fallback — yield the whole thing at once
+    fallback = _heuristic_socratic_fallback(code, language, last_error, user_question)
+    if fallback and fallback.strip() != "__SILENT__":
+        yield fallback.strip()
+
+
+async def _stream_gemini_sentences(api_key: str, messages: list[dict]):
+    """
+    Inner generator: connects to Gemini SSE, buffers token chunks, and
+    yields complete sentences (split on .!? + whitespace) as they form.
+    Trips the circuit breaker on full quota exhaustion.
+    """
+    import httpx
+
+    global _gemini_text_exhausted_until
+
+    _ssl_verify = os.getenv("KOGNIT_SSL_VERIFY", "0") not in ("0", "false", "no")
+
+    system_instruction = ""
+    contents = []
+    for msg in messages:
+        if msg["role"] == "system":
+            system_instruction = msg["content"]
+        else:
+            role = "user" if msg["role"] == "user" else "model"
+            contents.append({"role": role, "parts": [{"text": msg["content"]}]})
+
+    request_body = {
+        "contents": contents,
+        "generationConfig": {"maxOutputTokens": 400, "temperature": 0.7},
+    }
+    if system_instruction:
+        request_body["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+
+    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+    models_to_try = ["gemini-3.6-flash", "gemini-2.0-flash-lite"]
+    all_quota = True
+
+    async with httpx.AsyncClient(verify=_ssl_verify, timeout=20) as client:
+        for model_name in models_to_try:
+            url = (
+                f"https://generativelanguage.googleapis.com/v1beta/models"
+                f"/{model_name}:streamGenerateContent?alt=sse"
+            )
+            buffer = ""
+            got_any = False
+            try:
+                async with client.stream("POST", url, headers=headers, json=request_body) as resp:
+                    if resp.status_code == 429:
+                        print(f"[KOGNIT] Gemini stream ({model_name}): quota exhausted")
+                        continue
+                    if resp.status_code != 200:
+                        err_body = await resp.aread()
+                        print(f"[KOGNIT] Gemini stream ({model_name}) error {resp.status_code}")
+                        all_quota = False
+                        continue
+
+                    all_quota = False
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        raw = line[5:].strip()
+                        if raw in ("", "[DONE]"):
+                            continue
+                        try:
+                            chunk = __import__("json").loads(raw)
+                            parts = (
+                                chunk.get("candidates", [{}])[0]
+                                .get("content", {})
+                                .get("parts", [])
+                            )
+                            for p in parts:
+                                if "text" in p:
+                                    buffer += p["text"]
+                                    got_any = True
+                        except Exception:
+                            continue
+
+                        # Yield each complete sentence as it forms
+                        while True:
+                            m = _SENTENCE_END.search(buffer)
+                            if not m:
+                                break
+                            sentence = buffer[:m.start() + 1].strip()
+                            buffer = buffer[m.end():]
+                            if sentence:
+                                yield sentence
+
+                # Yield any trailing text that didn't end with punctuation
+                remainder = buffer.strip()
+                if remainder and got_any:
+                    yield remainder
+                if got_any:
+                    return  # success — stop trying other models
+
+            except Exception as e:
+                all_quota = False
+                print(f"[KOGNIT] Gemini stream ({model_name}) exception: {str(e)[:100]}")
+                continue
+
+    if all_quota:
+        _gemini_text_exhausted_until = time.time() + GEMINI_COOLDOWN_SECS
+        print(f"[KOGNIT] All Gemini stream models quota-exhausted — circuit breaker open for {GEMINI_COOLDOWN_SECS}s")
+
+
 def _heuristic_socratic_fallback(
     code: str,
     language: str,
@@ -286,13 +477,17 @@ def _heuristic_socratic_fallback(
 
 async def _call_llm(messages: list[dict]) -> str | None:
     """Call the best available LLM with the given messages. Returns None if unavailable."""
-    
-    # Prefer Gemini (it's fast and always configured)
+    global _gemini_text_exhausted_until
+
     gemini_key = os.getenv("GEMINI_API_KEY")
     if gemini_key:
-        result = await _call_gemini(gemini_key, messages)
-        if result:
-            return result
+        if time.time() < _gemini_text_exhausted_until:
+            remaining = int(_gemini_text_exhausted_until - time.time())
+            print(f"[KOGNIT] Gemini text circuit-breaker open — skipping for {remaining}s")
+        else:
+            result = await _call_gemini(gemini_key, messages)
+            if result:
+                return result
     
     openai_key = os.getenv("OPENAI_API_KEY")
     if openai_key:
@@ -307,13 +502,17 @@ async def _call_llm(messages: list[dict]) -> str | None:
 
 
 async def _call_gemini(api_key: str, messages: list[dict]) -> str | None:
-    """Call Gemini API using direct httpx REST calls (avoids SDK import issues)."""
+    """
+    Call Gemini via direct httpx REST streaming.
+    Streams the response and reassembles full text from SSE chunks.
+    Trips the circuit breaker if every model returns 429.
+    """
     import httpx
-    import json
+
+    global _gemini_text_exhausted_until
 
     _ssl_verify = os.getenv("KOGNIT_SSL_VERIFY", "0") not in ("0", "false", "no")
 
-    # Extract system prompt and build Gemini contents list
     system_instruction = ""
     contents = []
     for msg in messages:
@@ -325,41 +524,73 @@ async def _call_gemini(api_key: str, messages: list[dict]) -> str | None:
 
     request_body = {
         "contents": contents,
-        "generationConfig": {
-            "maxOutputTokens": 400,
-            "temperature": 0.7,
-        },
+        "generationConfig": {"maxOutputTokens": 400, "temperature": 0.7},
     }
     if system_instruction:
         request_body["systemInstruction"] = {"parts": [{"text": system_instruction}]}
 
-    headers = {
-        "Content-Type": "application/json",
-        "x-goog-api-key": api_key,
-    }
-
-    models_to_try = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-2.0-flash-lite", "gemini-2.0-flash"]
+    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+    models_to_try = ["gemini-3.6-flash", "gemini-2.0-flash-lite"]
+    all_quota = True  # track whether every failure was a quota error
 
     async with httpx.AsyncClient(verify=_ssl_verify, timeout=20) as client:
         for model_name in models_to_try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+            # Use streamGenerateContent so we can start reading tokens immediately
+            url = (
+                f"https://generativelanguage.googleapis.com/v1beta/models"
+                f"/{model_name}:streamGenerateContent?alt=sse"
+            )
             try:
-                response = await client.post(url, headers=headers, json=request_body)
-                if response.status_code == 200:
-                    data = response.json()
-                    return data["candidates"][0]["content"]["parts"][0]["text"]
-                elif response.status_code == 429:
-                    print(f"[KOGNIT] Gemini ({model_name}): quota exhausted, trying next model...")
-                    continue
-                else:
-                    err = response.json().get("error", {}).get("message", "")[:100]
-                    print(f"[KOGNIT] Gemini ({model_name}) error {response.status_code}: {err}")
-                    continue
+                full_text = ""
+                async with client.stream("POST", url, headers=headers, json=request_body) as resp:
+                    if resp.status_code == 429:
+                        print(f"[KOGNIT] Gemini ({model_name}): quota exhausted, trying next...")
+                        continue
+                    if resp.status_code != 200:
+                        err_body = await resp.aread()
+                        try:
+                            err_msg = __import__("json").loads(err_body).get("error", {}).get("message", "")[:100]
+                        except Exception:
+                            err_msg = err_body[:100]
+                        print(f"[KOGNIT] Gemini ({model_name}) error {resp.status_code}: {err_msg}")
+                        all_quota = False
+                        continue
+
+                    all_quota = False  # at least one model responded — not a quota issue
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        raw = line[5:].strip()
+                        if raw in ("", "[DONE]"):
+                            continue
+                        try:
+                            chunk = __import__("json").loads(raw)
+                            parts = (
+                                chunk.get("candidates", [{}])[0]
+                                .get("content", {})
+                                .get("parts", [])
+                            )
+                            for p in parts:
+                                if "text" in p:
+                                    full_text += p["text"]
+                        except Exception:
+                            continue
+
+                if full_text:
+                    print(f"[KOGNIT] Gemini ({model_name}) streamed {len(full_text)} chars")
+                    return full_text
+
             except Exception as e:
+                all_quota = False
                 print(f"[KOGNIT] Gemini ({model_name}) exception: {str(e)[:100]}")
                 continue
 
-    print("[KOGNIT] All Gemini models exhausted. Using Socratic fallback.")
+    # If every single attempt was a 429, trip the circuit breaker
+    if all_quota:
+        _gemini_text_exhausted_until = time.time() + GEMINI_COOLDOWN_SECS
+        print(f"[KOGNIT] All Gemini text models quota-exhausted — circuit breaker open for {GEMINI_COOLDOWN_SECS}s")
+    else:
+        print("[KOGNIT] All Gemini text models exhausted. Using Socratic fallback.")
     return None
 
 

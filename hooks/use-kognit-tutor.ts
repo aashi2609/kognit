@@ -27,7 +27,39 @@ export function useKognitTutor() {
     sessionIdRef.current = `session_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`
   }, [])
 
+  // ── Audio queue: guarantees playback never overlaps ──────────────────
+  // tts_chunk events (streaming) and audio_out events (fallback) both push
+  // into this queue; a single drain loop plays them one at a time.
+  const audioQueueRef = useRef<Array<{ b64: string; format: string }>>([])
   const isAudioPlayingRef = useRef(false)
+  // Timestamp when the current AI turn's first audio started playing.
+  // Used to enforce the 400ms barge-in guard.
+  const aiSpeechStartRef = useRef<number>(0)
+
+  const drainAudioQueue = useCallback(() => {
+    if (isAudioPlayingRef.current) return
+    const next = audioQueueRef.current.shift()
+    if (!next) return
+    _playAudioNow(next.b64, next.format)
+  }, [])
+
+  const drainRef = useRef(drainAudioQueue)
+  drainRef.current = drainAudioQueue
+
+  const enqueueAudio = useCallback((b64: string, format: string) => {
+    audioQueueRef.current.push({ b64, format })
+    drainRef.current()
+  }, [])
+
+  // Stop all playback immediately (used by barge-in)
+  const stopPlayback = useCallback(() => {
+    audioQueueRef.current = []
+    isAudioPlayingRef.current = false
+    currentAudioRef.current?.pause()
+    currentAudioRef.current = null
+  }, [])
+
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null)
 
   // Connect WebSocket
   const connectWs = useCallback(() => {
@@ -67,7 +99,11 @@ export function useKognitTutor() {
           }
 
           if (data.type === 'audio_out' && data.audio) {
-            playAudioBase64(data.audio, data.format || 'mp3')
+            enqueueAudio(data.audio, data.format || 'mp3')
+          }
+
+          if (data.type === 'tts_chunk' && data.audio) {
+            enqueueAudio(data.audio, data.format || 'mp3')
           }
         } catch (e) {
           console.warn('[KOGNIT] WS parse error:', e)
@@ -128,7 +164,7 @@ export function useKognitTutor() {
   const speakTextFallback = useCallback((text: string) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
     try {
-      window.speechSynthesis.cancel() // Stop previous speech
+      window.speechSynthesis.cancel()
       const utterance = new SpeechSynthesisUtterance(text)
       utterance.rate = 1.0
       utterance.pitch = 1.0
@@ -138,51 +174,50 @@ export function useKognitTutor() {
     }
   }, [])
 
-  // Play base64-encoded audio (ElevenLabs) or fallback to Web Speech API
-  const playAudioBase64 = useCallback((b64: string, format: string) => {
+  // Internal: play one audio item and advance the queue when it finishes.
+  // Never call directly — use enqueueAudio() so playback is serialised.
+  const _playAudioNow = useCallback((b64: string, format: string) => {
     try {
-      // Cancel fallback speech if ElevenLabs audio arrived
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         window.speechSynthesis.cancel()
       }
 
       const binary = atob(b64)
       const bytes = new Uint8Array(binary.length)
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i)
-      }
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
       const blob = new Blob([bytes], { type: `audio/${format}` })
       const url = URL.createObjectURL(blob)
       const audio = new Audio(url)
-      
-      audio.onplay = () => {
-        isAudioPlayingRef.current = true
-        setAiState('speaking')
-      }
-      audio.onended = () => {
+      currentAudioRef.current = audio
+
+      const advance = () => {
         isAudioPlayingRef.current = false
+        currentAudioRef.current = null
         URL.revokeObjectURL(url)
         setAiState('idle')
+        drainRef.current()
       }
-      audio.onerror = () => {
-        isAudioPlayingRef.current = false
-        setAiState('idle')
+
+      audio.onplay = () => {
+        isAudioPlayingRef.current = true
+        if (aiSpeechStartRef.current === 0) {
+          aiSpeechStartRef.current = Date.now()
+        }
+        setAiState('speaking')
       }
-      
+      audio.onended = advance
+      audio.onerror = advance
+
       const playPromise = audio.play()
       if (playPromise !== undefined) {
         playPromise.catch((e) => {
+          console.warn('[KOGNIT] Autoplay blocked, waiting for user gesture...', e)
           isAudioPlayingRef.current = false
           setAiState('idle')
-          console.warn('[KOGNIT] Browser autoplay restriction encountered. Attempting unlock on click...', e)
           const unlock = () => {
-            audio.play().then(() => {
-              isAudioPlayingRef.current = true
-              setAiState('speaking')
-            }).catch(() => {
-              isAudioPlayingRef.current = false
-              setAiState('idle')
-            })
+            audio.play()
+              .then(() => { isAudioPlayingRef.current = true; setAiState('speaking') })
+              .catch(advance)
             window.removeEventListener('click', unlock)
             window.removeEventListener('keydown', unlock)
           }
@@ -192,6 +227,9 @@ export function useKognitTutor() {
       }
     } catch (e) {
       console.error('[KOGNIT] Audio decode error:', e)
+      isAudioPlayingRef.current = false
+      currentAudioRef.current = null
+      drainRef.current()
     }
   }, [])
 
@@ -254,8 +292,9 @@ export function useKognitTutor() {
       createRecorder()
 
       // 3. Adaptive VAD threshold checking
-      const SILENCE_THRESHOLD = 0.003 // Lower threshold to support quiet microphones
-      const SILENCE_DURATION = 1200   // 1.2s silence triggers flush of spoken phrase
+      const SILENCE_THRESHOLD = 0.003
+      const SILENCE_DURATION = 1200
+      const BARGE_IN_GUARD_MS = 400  // ignore VAD for 400ms after AI starts speaking
       const dataArray = new Float32Array(analyser.fftSize)
       let speakingDetected = false
 
@@ -270,11 +309,30 @@ export function useKognitTutor() {
         const rms = Math.sqrt(sum / dataArray.length)
 
         if (rms > SILENCE_THRESHOLD) {
+          // ── Barge-in detection ──────────────────────────────────────
+          // If AI is currently speaking and enough time has passed since
+          // it started (guard prevents the AI's own voice triggering this),
+          // send a barge_in signal and stop local playback immediately.
+          const aiSpeechAge = aiSpeechStartRef.current
+            ? Date.now() - aiSpeechStartRef.current
+            : 0
+          if (
+            isAudioPlayingRef.current &&
+            aiSpeechAge > BARGE_IN_GUARD_MS
+          ) {
+            console.log('[KOGNIT] Barge-in detected — student spoke during AI response')
+            stopPlayback()
+            aiSpeechStartRef.current = 0
+            setAiState('listening')
+            if (wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.send(JSON.stringify({ type: 'barge_in' }))
+            }
+          }
+          // ── Normal VAD for end-of-utterance detection ───────────────
           speakingDetected = true
           if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
-          
+
           silenceTimerRef.current = setTimeout(() => {
-            // Speech segment finished — flush current chunk & restart recorder for next phrase
             if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording' && speakingDetected) {
               speakingDetected = false
               mediaRecorderRef.current.stop()
@@ -326,6 +384,11 @@ export function useKognitTutor() {
 
     analyserRef.current = null
     mediaRecorderRef.current = null
+    // Clear any queued audio so stale chunks don't play after mic stops
+    audioQueueRef.current = []
+    isAudioPlayingRef.current = false
+    aiSpeechStartRef.current = 0
+    currentAudioRef.current = null
     setIsMicActive(false)
     setAiState('idle')
   }, [])
