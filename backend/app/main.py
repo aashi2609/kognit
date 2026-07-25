@@ -18,9 +18,10 @@ from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import init_db, get_db
-from app.models import File
+from app.models import File, SkillMastery, ArenaSession
 from app.language_detection import detect_language
 from app.llm_router import get_available_models
+from app.auth import get_current_user
 
 import httpx
 
@@ -113,15 +114,13 @@ async def available_models():
 
 # ── File CRUD ─────────────────────────────────────────────────────────
 
-DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000001"
-
 
 @app.get("/files", tags=["files"], response_model=list[FileListItem])
-async def list_files(db: AsyncSession = Depends(get_db)):
-    """List all files for the placeholder user."""
+async def list_files(db: AsyncSession = Depends(get_db), user_id: str = Depends(get_current_user)):
+    """List all files for the authenticated user."""
     result = await db.execute(
         select(File)
-        .where(File.user_id == DEFAULT_USER_ID)
+        .where(File.user_id == user_id)
         .order_by(File.created_at)
     )
     files = result.scalars().all()
@@ -137,9 +136,9 @@ async def list_files(db: AsyncSession = Depends(get_db)):
 
 
 @app.get("/files/{file_id}", tags=["files"], response_model=FileResponse)
-async def get_file(file_id: str, db: AsyncSession = Depends(get_db)):
+async def get_file(file_id: str, db: AsyncSession = Depends(get_db), user_id: str = Depends(get_current_user)):
     """Get a single file with its full content."""
-    result = await db.execute(select(File).where(File.id == file_id))
+    result = await db.execute(select(File).where(File.id == file_id, File.user_id == user_id))
     file = result.scalar_one_or_none()
     if not file:
         raise HTTPException(status_code=404, detail="File not found")
@@ -155,12 +154,13 @@ async def get_file(file_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @app.post("/files", tags=["files"], response_model=FileResponse, status_code=201)
-async def create_file(body: FileCreate, db: AsyncSession = Depends(get_db)):
+async def create_file(body: FileCreate, db: AsyncSession = Depends(get_db), user_id: str = Depends(get_current_user)):
     """Create a new file. Language is auto-detected from the filename."""
     language = detect_language(body.filename)
-    print(f"[KOGNIT] New file: {body.filename} → detected language: {language}")
+    print(f"[KOGNIT] New file: {body.filename} → detected language: {language} for user {user_id}")
 
     new_file = File(
+        user_id=user_id,
         filename=body.filename,
         folder_path=body.folder_path,
         language=language,
@@ -182,9 +182,9 @@ async def create_file(body: FileCreate, db: AsyncSession = Depends(get_db)):
 
 
 @app.put("/files/{file_id}", tags=["files"])
-async def save_file(file_id: str, body: FileSave, db: AsyncSession = Depends(get_db)):
+async def save_file(file_id: str, body: FileSave, db: AsyncSession = Depends(get_db), user_id: str = Depends(get_current_user)):
     """Save/update file content, filename, or path. Updates language if filename changes."""
-    result = await db.execute(select(File).where(File.id == file_id))
+    result = await db.execute(select(File).where(File.id == file_id, File.user_id == user_id))
     file = result.scalar_one_or_none()
     if not file:
         raise HTTPException(status_code=404, detail="File not found")
@@ -217,9 +217,9 @@ async def save_file(file_id: str, body: FileSave, db: AsyncSession = Depends(get
 
 
 @app.delete("/files/{file_id}", tags=["files"])
-async def delete_file(file_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_file(file_id: str, db: AsyncSession = Depends(get_db), user_id: str = Depends(get_current_user)):
     """Delete a file by ID."""
-    result = await db.execute(select(File).where(File.id == file_id))
+    result = await db.execute(select(File).where(File.id == file_id, File.user_id == user_id))
     file = result.scalar_one_or_none()
     if not file:
         raise HTTPException(status_code=404, detail="File not found")
@@ -227,6 +227,29 @@ async def delete_file(file_id: str, db: AsyncSession = Depends(get_db)):
     await db.execute(delete(File).where(File.id == file_id))
     await db.commit()
     return {"success": True}
+
+
+# ── Skills & Arena ────────────────────────────────────────────────────
+
+@app.get("/skills", tags=["skills"])
+async def get_skills(user_id: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(SkillMastery)
+        .where(SkillMastery.user_id == user_id)
+        .order_by(SkillMastery.last_practiced_at.desc())
+    )
+    skills = result.scalars().all()
+    return skills
+
+@app.get("/arena", tags=["arena"])
+async def get_arena_sessions(user_id: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(ArenaSession)
+        .where(ArenaSession.user_id == user_id)
+        .order_by(ArenaSession.started_at.desc())
+    )
+    sessions = result.scalars().all()
+    return sessions
 
 
 # ── Code Execution & Parsing (Piston/Wandbox) ───────────────────────────────────
@@ -239,7 +262,7 @@ class ExtractPromptsRequest(BaseModel):
     content: str
 
 @app.post("/extract-prompts", tags=["execution"])
-async def extract_prompts(body: ExtractPromptsRequest):
+async def extract_prompts(body: ExtractPromptsRequest, user_id: str = Depends(get_current_user)):
     """
     Parse source code to find expected standard input prompts.
     Returns a list of labels (e.g. ['Enter name:', 'Enter age:']).
@@ -254,7 +277,7 @@ class RunCode(BaseModel):
     stdin: str = ""
 
 @app.post("/run", tags=["execution"])
-async def run_code(body: RunCode):
+async def run_code(body: RunCode, user_id: str = Depends(get_current_user)):
     """
     Execute code via the Piston API.
     Proxied through the backend to avoid browser CORS issues.

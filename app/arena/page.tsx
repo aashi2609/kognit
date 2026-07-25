@@ -12,6 +12,7 @@ import {
 import { GlassPanel } from "@/components/glass-panel"
 import { StudentCharacter } from "@/components/student-character"
 import { useKognitTutor } from "@/hooks/use-kognit-tutor"
+import { useAuth, useClerk } from "@clerk/nextjs"
 
 /* ------------------------------------------------------------------ */
 /*  Types & Interfaces                                                 */
@@ -211,6 +212,16 @@ function SoundwaveRibbon({ typingSpeed }: { typingSpeed: number }) {
 /* ------------------------------------------------------------------ */
 
 export default function ArenaPage() {
+  const { getToken } = useAuth()
+  const { signOut } = useClerk()
+  
+  const fetchWithAuth = useCallback(async (url: string, options: RequestInit = {}) => {
+    const token = await getToken()
+    const headers = new Headers(options.headers || {})
+    if (token) headers.set("Authorization", `Bearer ${token}`)
+    return fetch(url, { ...options, headers })
+  }, [getToken])
+
   // Tutor Hook Integration
   const { aiState, aiText, userTranscript, isMicActive, sendCodeUpdate, startMic, stopMic } = useKognitTutor()
 
@@ -377,7 +388,7 @@ export default function ArenaPage() {
     const timeoutId = setTimeout(() => controller.abort(), 15000)
 
     try {
-      const res = await fetch(`${API_BASE}/run`, {
+      const res = await fetchWithAuth(`${API_BASE}/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -481,6 +492,13 @@ export default function ArenaPage() {
               <span>{link.label}</span>
             </Link>
           ))}
+          <button
+            onClick={() => signOut({ redirectUrl: '/' })}
+            className="flex items-center gap-2 rounded-full px-4 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.2em] transition-all duration-300 border border-transparent text-red-400/80 hover:border-red-400/50 hover:bg-red-500/10 hover:text-red-300 ml-2"
+          >
+            <span className="h-2 w-2 rounded-full bg-red-400/50" />
+            <span>Logout</span>
+          </button>
         </div>
       </nav>
 

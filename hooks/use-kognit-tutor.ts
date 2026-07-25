@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useAuth } from "@clerk/nextjs"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 const WS_BASE = API_BASE.replace(/^http/, 'ws')
@@ -6,6 +7,7 @@ const WS_BASE = API_BASE.replace(/^http/, 'ws')
 export type AiState = 'idle' | 'listening' | 'thinking' | 'speaking'
 
 export function useKognitTutor() {
+  const { getToken } = useAuth()
   const [aiState, setAiState] = useState<AiState>('idle')
   const [aiText, setAiText] = useState('')
   const [userTranscript, setUserTranscript] = useState('')
@@ -62,7 +64,7 @@ export function useKognitTutor() {
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
 
   // Connect WebSocket
-  const connectWs = useCallback(() => {
+  const connectWs = useCallback(async () => {
     if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING) return
 
     if (reconnectTimerRef.current) {
@@ -71,7 +73,11 @@ export function useKognitTutor() {
     }
 
     try {
-      const ws = new WebSocket(`${WS_BASE}/ws/${sessionIdRef.current}`)
+      const token = await getToken()
+      const url = new URL(`${WS_BASE}/ws/${sessionIdRef.current}`)
+      if (token) url.searchParams.set("token", token)
+      
+      const ws = new WebSocket(url.toString())
       wsRef.current = ws
 
       ws.onopen = () => {
@@ -127,7 +133,7 @@ export function useKognitTutor() {
         reconnectTimerRef.current = setTimeout(connectWs, 3000)
       }
     }
-  }, [])
+  }, [getToken])
 
   // Auto-connect on mount
   useEffect(() => {

@@ -11,6 +11,8 @@ from __future__ import annotations
 import os
 import time
 from dotenv import load_dotenv
+from app.database import AsyncSessionLocal
+from sqlalchemy import text
 
 load_dotenv()
 
@@ -173,6 +175,7 @@ async def analyze_code_stream(
     conversation_history: list[dict],
     last_error: str | None = None,
     user_question: str | None = None,
+    user_id: str | None = None,
 ):
     """
     Async generator that yields completed sentences as they arrive from the
@@ -239,6 +242,14 @@ async def analyze_code_stream(
             if sentence.strip() == "__SILENT__":
                 return
             streamed_any = True
+            
+            # Simple heuristic for tracking mastery from LLM output
+            if user_id:
+                if "Nice" in sentence or "Great" in sentence:
+                    await update_skill_mastery(user_id, language, True)
+                elif "Check" in sentence or "Look" in sentence or "missing" in sentence:
+                    await update_skill_mastery(user_id, language, False)
+                    
             yield sentence
         if streamed_any:
             return
@@ -246,6 +257,11 @@ async def analyze_code_stream(
     # Heuristic fallback — yield the whole thing at once
     fallback = _heuristic_socratic_fallback(code, language, last_error, user_question)
     if fallback and fallback.strip() != "__SILENT__":
+        if user_id:
+            if "Nice work!" in fallback:
+                await update_skill_mastery(user_id, language, True)
+            elif fallback:
+                await update_skill_mastery(user_id, language, False)
         yield fallback.strip()
 
 
@@ -636,3 +652,33 @@ async def _call_anthropic(api_key: str, messages: list[dict]) -> str:
     except Exception as e:
         print(f"[KOGNIT] Anthropic error: {e}")
         return "I'm having a little trouble thinking right now, give me a moment."
+
+
+async def update_skill_mastery(user_id: str, concept_tag: str, resolved: bool):
+    if not AsyncSessionLocal:
+        return
+    async with AsyncSessionLocal() as db:
+        resolved_inc = 1 if resolved else 0
+        xp_gain = 10 if resolved else 0
+        mastery_delta = 0.05 if resolved else -0.01
+        
+        query = text("""
+            INSERT INTO skill_mastery (user_id, concept_tag, confusion_count, resolved_count, xp, last_practiced_at)
+            VALUES (:user_id, :concept_tag, 1, :resolved_inc, :xp_gain, now())
+            ON CONFLICT (user_id, concept_tag)
+            DO UPDATE SET
+                confusion_count = skill_mastery.confusion_count + 1,
+                resolved_count = skill_mastery.resolved_count + :resolved_inc,
+                mastery_level = LEAST(1.0, GREATEST(0.0, skill_mastery.mastery_level + :mastery_delta)),
+                xp = skill_mastery.xp + :xp_gain,
+                last_practiced_at = now()
+        """)
+        await db.execute(query, {
+            "user_id": user_id,
+            "concept_tag": concept_tag,
+            "resolved_inc": resolved_inc,
+            "xp_gain": xp_gain,
+            "mastery_delta": mastery_delta
+        })
+        await db.commit()
+

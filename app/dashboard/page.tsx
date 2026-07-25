@@ -12,6 +12,7 @@ import { GlassPanel } from "@/components/glass-panel"
 import { StudentCharacter, type Expression } from "@/components/student-character"
 import { DashboardThemeBox } from "@/components/dashboard-theme-box"
 import { useKognitTutor, type AiState } from "@/hooks/use-kognit-tutor"
+import { useAuth, useClerk } from "@clerk/nextjs"
 
 /* ------------------------------------------------------------------ */
 /*  Types & Interfaces                                                 */
@@ -282,8 +283,17 @@ function useCharacterReaction() {
 /* ------------------------------------------------------------------ */
 
 export default function DashboardPage() {
+  const { getToken } = useAuth()
+  const { signOut } = useClerk()
   const { state: charState, expression, trigger } = useCharacterReaction()
   const { aiState, aiText, userTranscript, isMicActive, sendCodeUpdate, startMic, stopMic } = useKognitTutor()
+
+  const fetchWithAuth = useCallback(async (url: string, options: RequestInit = {}) => {
+    const token = await getToken()
+    const headers = new Headers(options.headers || {})
+    if (token) headers.set("Authorization", `Bearer ${token}`)
+    return fetch(url, { ...options, headers })
+  }, [getToken])
   
   // File state
   const [files, setFiles] = useState<CodeFile[]>([])
@@ -392,7 +402,7 @@ export default function DashboardPage() {
       return
     }
     const timer = setTimeout(() => {
-      fetch(`${API_BASE}/extract-prompts`, {
+      fetchWithAuth(`${API_BASE}/extract-prompts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ language: activeFile.language, content: activeFile.content })
@@ -432,7 +442,7 @@ export default function DashboardPage() {
 
   // 1. Fetch file list on load
   useEffect(() => {
-    fetch(`${API_BASE}/files`)
+    fetchWithAuth(`${API_BASE}/files`)
       .then(res => res.json())
       .then(data => {
         setFiles(data)
@@ -451,7 +461,7 @@ export default function DashboardPage() {
     if (!activeFileId) return
     if (contentLoadedRef.current.has(activeFileId)) return
 
-    fetch(`${API_BASE}/files/${activeFileId}`)
+    fetchWithAuth(`${API_BASE}/files/${activeFileId}`)
       .then(res => res.json())
       .then(data => {
         contentLoadedRef.current.add(activeFileId)
@@ -501,7 +511,7 @@ export default function DashboardPage() {
     saveTimeoutRef.current = setTimeout(async () => {
       setSaveStatus('saving');
       try {
-        await fetch(`${API_BASE}/files/${activeFileId}`, {
+        await fetchWithAuth(`${API_BASE}/files/${activeFileId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: value })
@@ -518,7 +528,7 @@ export default function DashboardPage() {
   const handleRefreshFiles = useCallback(async () => {
     setIsLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/files`)
+      const res = await fetchWithAuth(`${API_BASE}/files`)
       const data = await res.json()
       setFiles(data)
       addLog('info', '[KOGNIT] Workspace refreshed')
@@ -551,7 +561,7 @@ export default function DashboardPage() {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/files/${fileId}`, {
+      const res = await fetchWithAuth(`${API_BASE}/files/${fileId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename: trimmed })
@@ -588,14 +598,14 @@ export default function DashboardPage() {
     try {
       let fullContent = file.content ?? ""
       if (!contentLoadedRef.current.has(file.id)) {
-        const fetchRes = await fetch(`${API_BASE}/files/${file.id}`)
+        const fetchRes = await fetchWithAuth(`${API_BASE}/files/${file.id}`)
         if (fetchRes.ok) {
           const detail = await fetchRes.json()
           fullContent = detail.content ?? ""
         }
       }
 
-      const res = await fetch(`${API_BASE}/files`, {
+      const res = await fetchWithAuth(`${API_BASE}/files`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -607,7 +617,7 @@ export default function DashboardPage() {
       const newFile = await res.json()
 
       if (fullContent) {
-        await fetch(`${API_BASE}/files/${newFile.id}`, {
+        await fetchWithAuth(`${API_BASE}/files/${newFile.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: fullContent })
@@ -629,7 +639,7 @@ export default function DashboardPage() {
   const handleDeleteFile = useCallback(async (fileId: string, e: React.MouseEvent) => {
     e.stopPropagation()
     try {
-      await fetch(`${API_BASE}/files/${fileId}`, { method: 'DELETE' })
+      await fetchWithAuth(`${API_BASE}/files/${fileId}`, { method: 'DELETE' })
       contentLoadedRef.current.delete(fileId)
       setFiles(prev => {
         const remaining = prev.filter(f => f.id !== fileId)
@@ -648,7 +658,7 @@ export default function DashboardPage() {
   // 4. Create File Handler
   const handleCreateFile = async (newFilename: string) => {
     try {
-      const res = await fetch(`${API_BASE}/files`, {
+      const res = await fetchWithAuth(`${API_BASE}/files`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -692,7 +702,7 @@ export default function DashboardPage() {
     try {
       if (folderFiles.length > 0) {
         await Promise.all(
-          folderFiles.map(file => fetch(`${API_BASE}/files/${file.id}`, { method: 'DELETE' }))
+          folderFiles.map(file => fetchWithAuth(`${API_BASE}/files/${file.id}`, { method: 'DELETE' }))
         )
         folderFiles.forEach(file => contentLoadedRef.current.delete(file.id))
         const folderFileIds = new Set(folderFiles.map(f => f.id))
@@ -763,7 +773,7 @@ export default function DashboardPage() {
     const timeoutId = setTimeout(() => controller.abort(), 15000)
 
     try {
-      const res = await fetch(`${API_BASE}/run`, {
+      const res = await fetchWithAuth(`${API_BASE}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -906,6 +916,13 @@ export default function DashboardPage() {
                 <span>{link.label}</span>
               </Link>
             ))}
+            <button
+              onClick={() => signOut({ redirectUrl: '/' })}
+              className="flex items-center gap-2 rounded-full px-4 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.2em] transition-all duration-300 border border-transparent text-red-400/80 hover:border-red-400/50 hover:bg-red-500/10 hover:text-red-300 ml-2"
+            >
+              <span className="h-2 w-2 rounded-full bg-red-400/50" />
+              <span>Logout</span>
+            </button>
           </div>
         </div>
 

@@ -4,6 +4,9 @@ import { motion, AnimatePresence } from "motion/react"
 import Link from "next/link"
 import { useCallback, useMemo, useRef, useState, useEffect } from "react"
 import { GlassPanel } from "@/components/glass-panel"
+import { useAuth, useClerk } from "@clerk/nextjs"
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 /* ================================================================== */
 /*  Data Model                                                         */
@@ -310,9 +313,52 @@ function getNodeGlowColor(state: NodeState): string {
 /* ================================================================== */
 
 export default function SkillsPage() {
+  const { getToken } = useAuth()
+  const { signOut } = useClerk()
+  
+  const fetchWithAuth = useCallback(async (url: string, options: RequestInit = {}) => {
+    const token = await getToken()
+    const headers = new Headers(options.headers || {})
+    if (token) headers.set("Authorization", `Bearer ${token}`)
+    return fetch(url, { ...options, headers })
+  }, [getToken])
+
+  const [skills, setSkills] = useState<SkillNode[]>(SKILLS)
   const [selectedSkill, setSelectedSkill] = useState<SkillNode | null>(null)
   const [hoveredSkill, setHoveredSkill] = useState<string | null>(null)
-  const diagnosis = useAIDiagnosis(SKILLS)
+  const diagnosis = useAIDiagnosis(skills)
+
+  useEffect(() => {
+    fetchWithAuth(`${API_BASE}/skills`)
+      .then(res => res.json())
+      .then(data => {
+        setSkills(prev => prev.map(s => {
+          const bd = data.find((d: any) => d.concept_tag === s.id || d.concept_tag === s.label.toLowerCase())
+          if (bd) {
+            return {
+              ...s,
+              mastery: Math.floor(bd.mastery_level * 100),
+              confusionScore: Math.min(100, bd.confusion_count * 10),
+              practiceCount: bd.confusion_count + bd.resolved_count,
+              state: bd.mastery_level > 0.8 ? 'mastered' : (bd.confusion_count > bd.resolved_count ? 'struggling' : 'locked'),
+              lastPracticed: new Date(bd.last_practiced_at).toLocaleString()
+            }
+          } else {
+            const isRoot = ['variables', 'functions', 'arrays'].includes(s.id)
+            return {
+              ...s,
+              state: isRoot ? 'struggling' : 'locked',
+              mastery: 0,
+              confusionScore: 0,
+              practiceCount: 0,
+              lastPracticed: 'never'
+            }
+          }
+          return s
+        }))
+      })
+      .catch(err => console.error("Failed to fetch skills:", err))
+  }, [fetchWithAuth])
 
   // Pan & zoom state
   const svgRef = useRef<SVGSVGElement>(null)
@@ -323,7 +369,7 @@ export default function SkillsPage() {
   // Dragging nodes
   const [draggedNode, setDraggedNode] = useState<string | null>(null)
   const [nodePositions, setNodePositions] = useState<Record<string, { x: number; y: number }>>(
-    () => Object.fromEntries(SKILLS.map(s => [s.id, { ...s.position }]))
+    () => Object.fromEntries(skills.map(s => [s.id, { ...s.position }]))
   )
 
   const handleWheel = useCallback((_e: React.WheelEvent) => {
@@ -365,7 +411,7 @@ export default function SkillsPage() {
   // Category stats
   const categoryStats = useMemo(() => {
     const map = new Map<string, { total: number; mastered: number; struggling: number; locked: number }>()
-    for (const s of SKILLS) {
+    for (const s of skills) {
       const entry = map.get(s.category) || { total: 0, mastered: 0, struggling: 0, locked: 0 }
       entry.total++
       entry[s.state]++
@@ -410,6 +456,13 @@ export default function SkillsPage() {
               <span>{link.label}</span>
             </Link>
           ))}
+          <button
+            onClick={() => signOut({ redirectUrl: '/' })}
+            className="flex items-center gap-2 rounded-full px-4 py-1.5 font-mono text-xs font-bold uppercase tracking-[0.2em] transition-all duration-300 border border-transparent text-red-400/80 hover:border-red-400/50 hover:bg-red-500/10 hover:text-red-300 ml-2"
+          >
+            <span className="h-2 w-2 rounded-full bg-red-400/50" />
+            <span>Logout</span>
+          </button>
         </div>
       </nav>
 
@@ -545,8 +598,8 @@ export default function SkillsPage() {
                 const from = nodePositions[fromId]
                 const to = nodePositions[toId]
                 if (!from || !to) return null
-                const fromSkill = SKILLS.find(s => s.id === fromId)!
-                const toSkill = SKILLS.find(s => s.id === toId)!
+                const fromSkill = skills.find(s => s.id === fromId)!
+                const toSkill = skills.find(s => s.id === toId)!
                 const isLocked = toSkill.state === 'locked'
                 const isMasteredPath = fromSkill.state === 'mastered' && toSkill.state === 'mastered'
 
@@ -566,7 +619,7 @@ export default function SkillsPage() {
               })}
 
               {/* ── Nodes ─────────────────────────────────────── */}
-              {SKILLS.map(skill => {
+              {skills.map(skill => {
                 const pos = nodePositions[skill.id]
                 if (!pos) return null
                 const color = getNodeColor(skill.state)
@@ -790,7 +843,7 @@ export default function SkillsPage() {
               Memory Health
             </h3>
             <div className="mt-3 flex flex-col gap-2.5">
-              {SKILLS.filter(s => s.state !== 'locked').map(s => {
+              {skills.filter(s => s.state !== 'locked').map(s => {
                 const decay = getDecayLevel(s.lastPracticed)
                 return (
                   <div key={s.id} className="flex items-center gap-2">

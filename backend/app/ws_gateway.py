@@ -22,6 +22,11 @@ from app.session_store import (
 from app.code_analyzer import analyze_code_stream
 from app.tts_service import text_to_speech, audio_to_base64, stream_tts_to_ws
 from app.stt_service import transcribe_audio
+from app.auth import get_current_user_ws
+from app.database import AsyncSessionLocal
+from app.models import ArenaSession
+from sqlalchemy import update
+from datetime import datetime, timezone
 
 
 # ── Per-session state ─────────────────────────────────────────────────
@@ -48,11 +53,32 @@ def _get_barge_in(session_id: str) -> asyncio.Event:
 # ── WebSocket entry point ─────────────────────────────────────────────
 
 async def handle_websocket(websocket: WebSocket, session_id: str):
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=1008, reason="Missing token")
+        return
+        
+    try:
+        user_id = get_current_user_ws(token)
+    except Exception as e:
+        await websocket.close(code=1008, reason=str(e))
+        return
+
     await websocket.accept()
+    
+    arena_session_id = None
+    if AsyncSessionLocal:
+        async with AsyncSessionLocal() as db:
+            new_arena = ArenaSession(user_id=user_id, language="python") # Default
+            db.add(new_arena)
+            await db.commit()
+            await db.refresh(new_arena)
+            arena_session_id = new_arena.id
+            
     _active_connections[session_id] = websocket
     _get_turn_lock(session_id)
     _get_barge_in(session_id)
-    print(f"[KOGNIT] WS connected: {session_id}")
+    print(f"[KOGNIT] WS connected: {session_id} for user {user_id}")
 
     try:
         while True:
@@ -83,6 +109,15 @@ async def handle_websocket(websocket: WebSocket, session_id: str):
         task = _analysis_tasks.pop(session_id, None)
         if task and not task.done():
             task.cancel()
+            
+        if arena_session_id and AsyncSessionLocal:
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    update(ArenaSession)
+                    .where(ArenaSession.id == arena_session_id)
+                    .values(ended_at=datetime.now(timezone.utc))
+                )
+                await db.commit()
 
 
 # ── Barge-in ──────────────────────────────────────────────────────────
