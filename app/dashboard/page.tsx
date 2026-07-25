@@ -269,7 +269,7 @@ function useCharacterReaction() {
   }, [])
 
   const expression: Expression =
-    state === 'nod' ? 'happy' : state === 'think' ? 'focus' : state === 'gesture' ? 'happy' : 'focus'
+    state === 'nod' ? 'happy' : state === 'think' ? 'focus' : state === 'gesture' ? 'happy' : 'happy'
 
   return { state, expression, trigger }
 }
@@ -287,6 +287,17 @@ export default function DashboardPage() {
   const { signOut } = useClerk()
   const { state: charState, expression, trigger } = useCharacterReaction()
   const { aiState, aiEmotion, aiText, userTranscript, isMicActive, sendCodeUpdate, startMic, stopMic } = useKognitTutor()
+
+  // Sync AI emotion to character reaction trigger
+  useEffect(() => {
+    if (aiEmotion === 'celebratory' || aiEmotion === 'encouraging') {
+      trigger('nod')
+    } else if (aiEmotion === 'concerned') {
+      trigger('gesture')
+    } else if (aiEmotion === 'thinking') {
+      trigger('think')
+    }
+  }, [aiEmotion, trigger])
 
   const fetchWithAuth = useCallback(async (url: string, options: RequestInit = {}) => {
     const token = await getToken()

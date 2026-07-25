@@ -5,7 +5,7 @@ import { useEffect, useRef } from "react"
 import confetti from "canvas-confetti"
 
 export type Expression = "happy" | "focus" | "panic" | "shock"
-export type AiEmotion = "encouraging" | "thinking" | "concerned" | "celebratory" | "neutral"
+export type AiEmotion = "encouraging" | "thinking" | "concerned" | "celebratory" | "neutral" | "stressing" | "curious" | "relieved"
 
 /**
  * A structurally stabilized stylized vector student character.
@@ -32,7 +32,7 @@ export function StudentCharacter({
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
-  const triggerConfetti = showConfetti || emotion === "celebratory"
+  const triggerConfetti = showConfetti || emotion === "celebratory" || emotion === "relieved"
 
   useEffect(() => {
     if (triggerConfetti && canvasRef.current) {
@@ -81,11 +81,11 @@ export function StudentCharacter({
   const headTilt = eyeTarget ? eyeTarget.x * 3 : 0
 
   const effectiveExpression: Expression =
-    emotion === "concerned"
+    emotion === "concerned" || emotion === "stressing"
       ? "panic"
-      : emotion === "thinking"
+      : emotion === "thinking" || emotion === "curious"
         ? "focus"
-        : emotion === "celebratory" || emotion === "encouraging"
+        : emotion === "celebratory" || emotion === "encouraging" || emotion === "relieved" || emotion === "neutral"
           ? "happy"
           : expression
 
@@ -93,33 +93,47 @@ export function StudentCharacter({
     transition: "filter 0.5s ease-in-out",
     filter:
       emotion === "celebratory"
-        ? "brightness(1.2) saturate(1.15)"
-        : emotion === "concerned"
-          ? "brightness(0.85) saturate(0.85)"
-          : emotion === "thinking"
-            ? "brightness(1.05) saturate(1.05)"
-            : "brightness(1.0) saturate(1.0)",
+        ? "brightness(1.25) saturate(1.2)"
+        : emotion === "relieved"
+          ? "brightness(1.15) saturate(1.1)"
+          : emotion === "stressing"
+            ? "brightness(0.75) saturate(0.8) sepia(0.2)"
+            : emotion === "concerned"
+              ? "brightness(0.85) saturate(0.85)"
+              : emotion === "curious"
+                ? "brightness(1.1) saturate(1.1)"
+                : emotion === "thinking"
+                  ? "brightness(1.05) saturate(1.05)"
+                  : "brightness(1.0) saturate(1.0)",
   }
 
   const characterAnimate =
     emotion === "celebratory"
-      ? { scale: [1, 1.12, 1], y: [0, -8, 0] }
-      : emotion === "concerned"
-        ? { scale: 0.97, y: 4, rotate: 0 }
-        : emotion === "thinking"
-          ? { scale: 1, x: [-2, 2, -2], rotate: [-1, 1, -1] }
-          : emotion === "encouraging"
-            ? { scale: 1, y: [0, 4, 0, 2, 0] }
-            : { scale: 1, x: 0, y: 0, rotate: 0 }
+      ? { scale: [1, 1.15, 1], y: [0, -10, 0] }
+      : emotion === "relieved"
+        ? { scale: [1, 1.05, 1], y: [0, 3, 0] }
+        : emotion === "stressing"
+          ? { scale: 0.94, x: [-2, 2, -2, 2, 0], y: 6 }
+          : emotion === "concerned"
+            ? { scale: 0.97, y: 5, rotate: 2 }
+            : emotion === "curious"
+              ? { scale: 1.03, rotate: -6, y: -2 }
+              : emotion === "thinking"
+                ? { scale: 1, x: [-3, 3, -3], rotate: [2, 6, 2] }
+                : emotion === "encouraging"
+                  ? { scale: 1, y: [0, 5, 0, 3, 0] }
+                  : { scale: 1, x: 0, y: 0, rotate: 0 }
 
   const characterTransition: any =
-    emotion === "celebratory"
+    emotion === "celebratory" || emotion === "relieved"
       ? { duration: 0.5, ease: "easeInOut" }
-      : emotion === "thinking"
-        ? { duration: 3.5, repeat: Infinity, ease: "easeInOut" }
-        : emotion === "encouraging"
-          ? { duration: 0.6, ease: "easeInOut" }
-          : { duration: 0.5, ease: "easeInOut" }
+      : emotion === "stressing"
+        ? { duration: 0.4, repeat: 2 }
+        : emotion === "thinking"
+          ? { duration: 3.5, repeat: Infinity, ease: "easeInOut" }
+          : emotion === "encouraging"
+            ? { duration: 0.6, ease: "easeInOut" }
+            : { duration: 0.5, ease: "easeInOut" }
 
   return (
     <div className={`relative flex items-center justify-center ${className || ""}`}>
@@ -729,28 +743,31 @@ function Eyes({
 }
 
 function Brows({ expression }: { expression: Expression }) {
-  const stroke = "oklch(0.22 0.02 60)"
+  const stroke = "oklch(0.24 0.02 60)"
   if (expression === "panic" || expression === "shock") {
     const lift = expression === "shock" ? -4 : 0
+    // Soft worried eyebrows: inner-raised curve
     return (
-      <g stroke={stroke} strokeWidth="3.5" strokeLinecap="round">
-        <path d={`M94 ${100 + lift} L114 ${96 + lift}`} fill="none" />
-        <path d={`M126 ${96 + lift} L146 ${100 + lift}`} fill="none" />
+      <g stroke={stroke} strokeWidth="3.2" strokeLinecap="round">
+        <path d={`M94 ${101 + lift} Q104 ${95 + lift} 114 ${100 + lift}`} fill="none" />
+        <path d={`M126 ${100 + lift} Q136 ${95 + lift} 146 ${101 + lift}`} fill="none" />
       </g>
     )
   }
   if (expression === "focus") {
+    // Gentle concentrated line — attentive, NOT angry
     return (
-      <g stroke={stroke} strokeWidth="3.5" strokeLinecap="round">
-        <path d="M94 102 L114 101" fill="none" />
-        <path d="M126 101 L146 102" fill="none" />
+      <g stroke={stroke} strokeWidth="3.2" strokeLinecap="round">
+        <path d="M95 99 L114 100" fill="none" />
+        <path d="M126 100 L146 99" fill="none" />
       </g>
     )
   }
+  // Soft, warm, friendly arched eyebrows for happy/neutral
   return (
-    <g stroke={stroke} strokeWidth="3.5" strokeLinecap="round">
-      <path d="M95 100 Q104 96 114 100" fill="none" />
-      <path d="M126 100 Q136 96 145 100" fill="none" />
+    <g stroke={stroke} strokeWidth="3.2" strokeLinecap="round">
+      <path d="M95 98 Q104 92 114 97" fill="none" />
+      <path d="M126 97 Q136 92 145 98" fill="none" />
     </g>
   )
 }
@@ -767,12 +784,12 @@ function Mouth({ expression, isSpeaking }: { expression: Expression; isSpeaking?
           fill="oklch(0.32 0.07 20 / 30%)"
           animate={{
             d: [
-              "M106 138 Q120 142 134 138 Q120 139 106 138", // Slight open neutral
-              "M104 137 Q120 154 136 137 Q120 143 104 137", // "A/Ah" wide open
-              "M112 137 Q120 148 128 137 Q120 143 112 137", // "O/Oh" rounded cavity
-              "M108 139 L132 139 M108 139 Q120 139 132 139", // "M/P/B" closed press
-              "M105 137 Q120 149 135 137 Q120 140 105 137", // "E/Eh" wide smile open
-              "M110 138 Q120 152 130 138 Q120 144 110 138", // "U/Oo" medium pucker
+              "M106 138 Q120 142 134 138 Q120 139 106 138",
+              "M104 137 Q120 154 136 137 Q120 143 104 137",
+              "M112 137 Q120 148 128 137 Q120 143 112 137",
+              "M108 139 L132 139 M108 139 Q120 139 132 139",
+              "M105 137 Q120 149 135 137 Q120 140 105 137",
+              "M110 138 Q120 152 130 138 Q120 144 110 138",
             ],
           }}
           transition={{
@@ -782,7 +799,6 @@ function Mouth({ expression, isSpeaking }: { expression: Expression; isSpeaking?
             ease: "easeInOut",
           }}
         />
-        {/* Teeth accent showing dynamically during open vowels */}
         <motion.path
           d="M112 138 Q120 140 128 138"
           fill="none"
@@ -804,14 +820,12 @@ function Mouth({ expression, isSpeaking }: { expression: Expression; isSpeaking?
 
   if (expression === "panic") {
     return (
-      <motion.ellipse
-        cx="120"
-        cy="140"
-        rx="9"
-        fill="oklch(0.35 0.06 20)"
-        initial={{ ry: 11 }}
-        animate={{ ry: [11, 8, 11] }}
-        transition={{ duration: 0.5, repeat: Infinity }}
+      <path
+        d="M106 146 Q120 136 134 146"
+        fill="none"
+        stroke="oklch(0.35 0.06 20)"
+        strokeWidth="3.8"
+        strokeLinecap="round"
       />
     )
   }
@@ -819,32 +833,41 @@ function Mouth({ expression, isSpeaking }: { expression: Expression; isSpeaking?
     return (
       <motion.ellipse
         cx="120"
-        rx="7"
+        cy="142"
+        rx="8"
+        ry="11"
         fill="oklch(0.35 0.06 20)"
-        initial={{ ry: 9, cy: 142 }}
-        animate={{ ry: [9, 12, 9], cy: [142, 140, 142] }}
-        transition={{ duration: 0.7, repeat: Infinity }}
+        animate={{ ry: [11, 8, 11] }}
+        transition={{ duration: 0.5, repeat: Infinity }}
       />
     )
   }
   if (expression === "focus") {
     return (
       <path
-        d="M110 140 L130 140"
+        d="M108 140 L132 140"
         stroke="oklch(0.35 0.06 20)"
-        strokeWidth="3"
+        strokeWidth="3.5"
         strokeLinecap="round"
         fill="none"
       />
     )
   }
+  // Happy wide toothy smile
   return (
-    <path
-      d="M106 138 Q120 152 134 138"
-      fill="none"
-      stroke="oklch(0.35 0.06 20)"
-      strokeWidth="3.5"
-      strokeLinecap="round"
-    />
+    <g>
+      <path
+        d="M104 136 Q120 156 136 136 Z"
+        fill="oklch(0.32 0.08 20)"
+        stroke="oklch(0.35 0.06 20)"
+        strokeWidth="2.5"
+      />
+      <path
+        d="M106 137 Q120 139 134 137"
+        fill="none"
+        stroke="white"
+        strokeWidth="2.5"
+      />
+    </g>
   )
 }
