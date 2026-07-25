@@ -223,7 +223,7 @@ export default function ArenaPage() {
   }, [getToken])
 
   // Tutor Hook Integration
-  const { aiState, aiText, userTranscript, isMicActive, sendCodeUpdate, startMic, stopMic } = useKognitTutor()
+  const { aiState, aiEmotion, aiText, userTranscript, isMicActive, sendCodeUpdate, startMic, stopMic } = useKognitTutor()
 
   // Difficulty Filter
   const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>("medium")
@@ -960,7 +960,9 @@ export default function ArenaPage() {
                 >
                   <StudentCharacter
                     expression={charExpression}
+                    emotion={aiEmotion}
                     isSpeaking={aiState === 'speaking'}
+                    showConfetti={submitted}
                     className="h-full w-full"
                   />
                 </motion.div>

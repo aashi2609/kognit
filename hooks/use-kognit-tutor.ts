@@ -5,10 +5,12 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 const WS_BASE = API_BASE.replace(/^http/, 'ws')
 
 export type AiState = 'idle' | 'listening' | 'thinking' | 'speaking'
+export type AiEmotion = 'encouraging' | 'thinking' | 'concerned' | 'celebratory' | 'neutral'
 
 export function useKognitTutor() {
   const { getToken } = useAuth()
   const [aiState, setAiState] = useState<AiState>('idle')
+  const [aiEmotion, setAiEmotion] = useState<AiEmotion>('neutral')
   const [aiText, setAiText] = useState('')
   const [userTranscript, setUserTranscript] = useState('')
   const [isMicActive, setIsMicActive] = useState(false)
@@ -97,7 +99,8 @@ export function useKognitTutor() {
           }
 
           if (data.type === 'ai_response') {
-            setAiText(data.text)
+            if (data.text !== undefined) setAiText(data.text)
+            if (data.emotion) setAiEmotion(data.emotion as AiEmotion)
           }
 
           if (data.type === 'user_transcript') {
@@ -435,6 +438,7 @@ export function useKognitTutor() {
 
   return {
     aiState,
+    aiEmotion,
     aiText,
     userTranscript,
     isMicActive,

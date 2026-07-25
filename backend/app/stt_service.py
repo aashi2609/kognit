@@ -116,10 +116,10 @@ async def _whisper_gemini(api_key: str, audio_bytes: bytes, format: str) -> str 
     }
 
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-    models_to_try = ["gemini-3.6-flash", "gemini-2.0-flash-lite"]
+    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"]
     all_quota = True
 
-    async with httpx.AsyncClient(verify=_ssl_verify, timeout=8) as client:
+    async with httpx.AsyncClient(verify=_ssl_verify, timeout=5) as client:
         for model_name in models_to_try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
             try:

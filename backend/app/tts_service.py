@@ -9,10 +9,12 @@ Two modes:
 from __future__ import annotations
 
 import os
+import re as _re
 import base64
 import asyncio
 from fastapi import WebSocket
 from dotenv import load_dotenv
+
 
 load_dotenv()
 
@@ -53,11 +55,60 @@ def _generate_tts_sync(text: str, api_key: str) -> bytes | None:
         return None
 
 
+def prepare_text_for_tts(text: str) -> str:
+    if not text:
+        return ""
+        
+    # Replace literal punctuation symbols inside quotes so the TTS engine actually pronounces them as words
+    replacements = {
+        '";"': ' semicolon ',
+        "';'": ' semicolon ',
+        '","': ' comma ',
+        "','": ' comma ',
+        '":"': ' colon ',
+        "':'": ' colon ',
+        '"("': ' opening parenthesis ',
+        "'('": ' opening parenthesis ',
+        '")"': ' closing parenthesis ',
+        "')'": ' closing parenthesis ',
+        '"{"': ' opening curly brace ',
+        "'{'": ' opening curly brace ',
+        '"}"': ' closing curly brace ',
+        "'}'": ' closing curly brace ',
+        '"["': ' opening bracket ',
+        "'['": ' opening bracket ',
+        '"]"': ' closing bracket ',
+        "']'": ' closing bracket ',
+        '"="': ' equals ',
+        "'='": ' equals ',
+        '"+"': ' plus ',
+        "'+'": ' plus ',
+        '"-"': ' minus ',
+        "'-'": ' minus ',
+    }
+    for orig, repl in replacements.items():
+        text = text.replace(orig, repl)
+        
+    # Replace standalone punctuation characters surrounded by spaces
+    text = text.replace(' ; ', ' semicolon ')
+    text = text.replace(' , ', ' comma ')
+    text = text.replace(' : ', ' colon ')
+    
+    # Remove single and double quotes so they don't cause the TTS to skip words inside them
+    text = text.replace('"', ' ')
+    text = text.replace("'", ' ')
+    
+    # Clean up any consecutive whitespace
+    text = _re.sub(r'\s+', ' ', text).strip()
+    return text
+
+
 async def text_to_speech(text: str) -> bytes | None:
     api_key = os.getenv("ELEVENLABS_API_KEY")
     if not api_key:
         return None
-    return await asyncio.to_thread(_generate_tts_sync, text, api_key)
+    clean_text = prepare_text_for_tts(text)
+    return await asyncio.to_thread(_generate_tts_sync, clean_text, api_key)
 
 
 def audio_to_base64(audio_bytes: bytes) -> str:
@@ -79,16 +130,18 @@ async def stream_tts_to_ws(sentence: str, ws: WebSocket) -> bool:
     if not api_key:
         return False
 
+    clean_sentence = prepare_text_for_tts(sentence)
+
     # Collect all chunks for this sentence in a thread, then send as one blob
     loop = asyncio.get_running_loop()
-    audio_bytes = await asyncio.to_thread(_collect_tts_sync, sentence, api_key)
+    audio_bytes = await asyncio.to_thread(_collect_tts_sync, clean_sentence, api_key)
 
     if not audio_bytes:
         return False
 
     b64 = base64.b64encode(audio_bytes).decode("utf-8")
     await _safe_send(ws, {"type": "tts_chunk", "audio": b64, "format": "mp3"})
-    print(f"[KOGNIT] TTS stream: '{sentence[:50]}' → {len(audio_bytes)} bytes")
+    print(f"[KOGNIT] TTS stream: '{clean_sentence[:50]}' → {len(audio_bytes)} bytes")
     return True
 
 

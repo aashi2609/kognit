@@ -41,14 +41,14 @@ def test_original_bug_scenario():
     # Turn 1: Initial proactive detection
     print("TURN 1: [Tutor detects error after debounce]")
     turn1_response = _heuristic_socratic_fallback(code, "Python", None, None)
-    print(f"🤖 Tutor: \"{turn1_response}\"")
+    print(f"[Tutor]: \"{turn1_response}\"")
     print()
     
     # Validate Turn 1
     assert turn1_response is not None, "FAIL: No initial response"
     assert "semicolon" not in turn1_response.lower(), "FAIL: Mentioned semicolon for Python!"
     assert "line" in turn1_response.lower(), "FAIL: Didn't reference a line number"
-    print("✓ Turn 1 validation passed:")
+    print("  Turn 1 validation passed:")
     print("  - Response generated")
     print("  - No semicolon mention")
     print("  - References line number")
@@ -56,13 +56,13 @@ def test_original_bug_scenario():
     
     # Turn 2: Student asks for clarification via voice
     print("TURN 2: [Student asks via voice]")
-    print("🎤 Student: \"what is missing\"")
+    print("[Student]: \"what is missing\"")
     turn2_response = _heuristic_socratic_fallback(
         code, "Python",
         last_error=turn1_response,
         user_question="what is missing"
     )
-    print(f"🤖 Tutor: \"{turn2_response}\"")
+    print(f"[Tutor]: \"{turn2_response}\"")
     print()
     
     # Validate Turn 2 - This is the critical fix
@@ -80,7 +80,7 @@ def test_original_bug_scenario():
     # Check language-specific error (no semicolons)
     assert "semicolon" not in turn2_response.lower(), "FAIL: Mentioned semicolon for Python!"
     
-    print("✓ Turn 2 validation passed:")
+    print("  Turn 2 validation passed:")
     print("  - No filler phrases")
     print("  - References specific line")
     print("  - Mentions 'colon' (concrete syntax element)")
@@ -89,13 +89,13 @@ def test_original_bug_scenario():
     
     # Turn 3: Student asks again (testing non-repetition)
     print("TURN 3: [Student still confused, asks again]")
-    print("🎤 Student: \"what is missing\"")
+    print("[Student]: \"what is missing\"")
     turn3_response = _heuristic_socratic_fallback(
         code, "Python",
         last_error=turn2_response,
         user_question="what is missing"
     )
-    print(f"🤖 Tutor: \"{turn3_response}\"")
+    print(f"[Tutor]: \"{turn3_response}\"")
     print()
     
     # Validate Turn 3
@@ -103,7 +103,7 @@ def test_original_bug_scenario():
     assert "colon" in turn3_response.lower(), "FAIL: Lost specificity on repeat"
     assert "line" in turn3_response.lower(), "FAIL: Doesn't reference line"
     
-    print("✓ Turn 3 validation passed:")
+    print("  Turn 3 validation passed:")
     print("  - Maintains specificity")
     print("  - Still references line and colon")
     print()
@@ -118,23 +118,23 @@ def test_original_bug_scenario():
     print("           try breaking down your logic step by step.\"")
     print()
     print("  Problems:")
-    print("    ✗ Filler phrase (\"great question\")")
-    print("    ✗ No code reference")
-    print("    ✗ Generic unhelpful advice")
+    print("    [X] Filler phrase (\"great question\")")
+    print("    [X] No code reference")
+    print("    [X] Generic unhelpful advice")
     print()
     print("AFTER THE FIX (current behavior):")
     print(f"  Turn 2: \"{turn2_response}\"")
     print()
     print("  Improvements:")
-    print("    ✓ NO filler phrases")
-    print("    ✓ References specific line (line 3)")
-    print("    ✓ Mentions concrete syntax element (colon)")
-    print("    ✓ References statement type (for statement)")
-    print("    ✓ Language-aware (no semicolons for Python)")
-    print("    ✓ Escalates from vague to specific")
+    print("    [OK] NO filler phrases")
+    print("    [OK] References specific line (line 3)")
+    print("    [OK] Mentions concrete syntax element (colon)")
+    print("    [OK] References statement type (for statement)")
+    print("    [OK] Language-aware (no semicolons for Python)")
+    print("    [OK] Escalates from vague to specific")
     print()
     print("=" * 80)
-    print("✅ ORIGINAL BUG IS FIXED")
+    print("[SUCCESS] ORIGINAL BUG IS FIXED")
     print("=" * 80)
 
 
@@ -205,11 +205,11 @@ print(result)"""),
         if response:
             has_semicolon = "semicolon" in response.lower()
             if has_semicolon:
-                print(f"❌ Scenario {idx} FAILED: {name}")
+                print(f"[FAIL] Scenario {idx} FAILED: {name}")
                 print(f"   Response: {response}")
                 print(f"   PROBLEM: Mentioned 'semicolon' for Python code!")
             else:
-                print(f"✅ Scenario {idx} PASSED: {name}")
+                print(f"[OK] Scenario {idx} PASSED: {name}")
                 if "clean code" in name.lower():
                     print(f"   Response: [silent - code is clean]")
                 else:
@@ -217,7 +217,7 @@ print(result)"""),
                 passed += 1
         else:
             # Silent response (code is clean)
-            print(f"✅ Scenario {idx} PASSED: {name}")
+            print(f"[OK] Scenario {idx} PASSED: {name}")
             print(f"   Response: [silent - no error detected]")
             passed += 1
     
@@ -227,9 +227,9 @@ print(result)"""),
     print("-" * 80)
     
     if passed == len(scenarios):
-        print("✅ ALL SCENARIOS PASSED - NO SEMICOLON MENTIONS FOR PYTHON")
+        print("[OK] ALL SCENARIOS PASSED - NO SEMICOLON MENTIONS FOR PYTHON")
     else:
-        print(f"❌ {len(scenarios) - passed} scenario(s) failed")
+        print(f"[FAIL] {len(scenarios) - passed} scenario(s) failed")
     
     print()
 
@@ -240,12 +240,12 @@ if __name__ == "__main__":
         test_semicolon_language_bug()
         print()
         print("=" * 80)
-        print("🎉 ALL BUG REPRODUCTION TESTS PASSED")
+        print("[SUCCESS] ALL BUG REPRODUCTION TESTS PASSED")
         print("=" * 80)
         sys.exit(0)
     except AssertionError as e:
         print()
         print("=" * 80)
-        print(f"❌ TEST FAILED: {e}")
+        print(f"[FAIL] TEST FAILED: {e}")
         print("=" * 80)
         sys.exit(1)

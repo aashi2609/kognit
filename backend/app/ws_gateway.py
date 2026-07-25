@@ -35,7 +35,7 @@ _analysis_tasks: dict[str, asyncio.Task] = {}
 _turn_locks: dict[str, asyncio.Lock] = {}
 _barge_in_flags: dict[str, asyncio.Event] = {}
 
-CODE_ANALYSIS_DEBOUNCE = 5.0  # seconds
+CODE_ANALYSIS_DEBOUNCE = 1.5  # seconds
 
 
 def _get_turn_lock(session_id: str) -> asyncio.Lock:
@@ -217,8 +217,9 @@ async def _run_ai_turn(
     first_sentence = True
     used_stream = False
 
+    last_emotion = "neutral"
     try:
-        async for sentence in analyze_code_stream(
+        async for sentence, emotion in analyze_code_stream(
             code=code,
             language=language,
             conversation_history=session.get("messages", []),
@@ -230,14 +231,17 @@ async def _run_ai_turn(
                 break
 
             if sentence.strip() == "__SILENT__":
+                if emotion == "celebratory":
+                    await _send_event(ws, {"type": "ai_response", "text": "", "emotion": "celebratory"})
                 break
 
             used_stream = True
+            last_emotion = emotion
             full_response_parts.append(sentence)
 
             # Show first sentence in UI immediately
             if first_sentence:
-                await _send_event(ws, {"type": "ai_response", "text": sentence})
+                await _send_event(ws, {"type": "ai_response", "text": sentence, "emotion": emotion})
                 await _send_event(ws, {"type": "ai_state", "state": "speaking"})
                 first_sentence = False
 
@@ -267,12 +271,26 @@ async def _run_ai_turn(
         full_response = " ".join(full_response_parts)
         add_message(session_id, "assistant", full_response)
         set_last_error(session_id, full_response)
-        # Update UI with the complete assembled response
-        await _send_event(ws, {"type": "ai_response", "text": full_response})
+        # Update UI with the complete assembled response and emotion
+        await _send_event(ws, {"type": "ai_response", "text": full_response, "emotion": last_emotion})
     elif not used_stream and not user_question:
         session = get_session(session_id)
         if session.get("last_error"):
             set_last_error(session_id, None)
+            congrat_text = "Awesome work! That bug is completely resolved!"
+            add_message(session_id, "assistant", congrat_text)
+            await _send_event(ws, {"type": "ai_response", "text": congrat_text, "emotion": "celebratory"})
+            await _send_event(ws, {"type": "ai_state", "state": "speaking"})
+            sent = await stream_tts_to_ws(congrat_text, ws)
+            if not sent:
+                audio = await text_to_speech(congrat_text)
+                if audio:
+                    await _send_event(ws, {
+                        "type": "audio_out",
+                        "audio": audio_to_base64(audio),
+                        "format": "mp3",
+                    })
+            await _send_event(ws, {"type": "ai_state", "state": "idle"})
 
     print(f"[KOGNIT] AI turn complete — session={session_id} barged={barge_in.is_set()}")
 

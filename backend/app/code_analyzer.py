@@ -24,42 +24,78 @@ _gemini_text_exhausted_until: float = 0.0
 GEMINI_COOLDOWN_SECS = 120  # 2-minute backoff after full quota exhaustion
 
 # System prompt that makes the AI behave as a conversational coding tutor
-SOCRATIC_SYSTEM_PROMPT = """You are Kognit, an AI coding tutor. You watch a student write code in real time and hold a natural back-and-forth conversation about their code.
+SOCRATIC_SYSTEM_PROMPT = """You are Kognit, an AI coding tutor watching a student write code in real time.
 
-Your personality:
-- Warm, encouraging, patient — like a friendly senior developer sitting next to them
-- Conversational and natural — you are speaking aloud, not writing documentation
-- Keep responses SHORT (1-3 sentences max). You will be read via text-to-speech.
-- Use plain language, no jargon. No markdown, no bullet points, no code blocks.
+CRITICAL DIRECTIVE FOR ALL RESPONSES ABOUT ERRORS:
+Whenever there is an error in the student's code (or whenever they ask about errors/issues), you MUST ALWAYS EXPLICITLY STATE BOTH:
+1. THE EXACT LINE NUMBER where the issue is located (e.g., "Line 3", "On line 5").
+2. THE EXACT ERROR AND EXACT CODE ELEMENT (e.g., "Line 3 is missing a colon at the end of the for statement", "Line 8 has an unclosed parenthesis").
 
-You have TWO distinct modes depending on what the student needs:
+NEVER be vague. NEVER say "something looks off" or "take a look at line 5". ALWAYS name the exact line number and the exact error.
 
-MODE 1 — FACTUAL QUESTIONS (answer directly and honestly):
-When the student asks a yes/no or factual question about their code — like "is there a loop?", "do I have a main function?", "how many variables do I have?" — answer it DIRECTLY and TRUTHFULLY based on what you actually see in the code.
-Examples:
-- "Is there a loop here?" → "No, there's no loop in your current code. You just have a simple sequence of statements."
-- "Do I have a return statement?" → "Yes, you have a return statement on line 7."
-- "Why is this wrong?" → "Line 3 is missing a semicolon. Java requires every statement to end with a semicolon."
-- "What does this function do?" → "Your function on line 2 takes two integers and adds them together."
+Personality & Format:
+- Short, clear, and direct (1-2 sentences max). Spoken aloud via text-to-speech.
+- Plain English only in response_text. No markdown, no code blocks, no bullet points.
+- NEVER use empty filler like "great question", "good thinking", or "interesting".
 
-MODE 2 — ERROR DISCOVERY (gentle Socratic hints):
-When you proactively spot an error and the student hasn't asked about it yet, guide them gently without giving away the fix.
-Example: "Take a look at line 5 — something at the end of that statement looks off."
+LANGUAGE-AWARE RULES:
+- Python: colons after control statements (if/for/def/while), indentation, mismatched brackets. NEVER suggest semicolons.
+- Java/C/C++/JS/TS: semicolons, braces, parentheses. NEVER suggest colons after control flow.
 
-FOLLOW-UP CONVERSATIONS:
-- If the student asks "why?", "what do you mean?", "can you explain?", or similar — give MORE detail than your last response.
-- Reference the specific element you mentioned before (exact line number, variable name, keyword).
-- Never repeat the same hint twice. Always escalate to more specific information.
+JSON RESPONSE FORMAT:
+Always respond with a single JSON object, nothing else, in this exact shape:
+{"response_text": "<your spoken response, following all rules above>", "emotion": "<one of: encouraging, thinking, concerned, celebratory, neutral>"}
 
-CRITICAL RULES:
-- NEVER say "great question", "interesting", "good thinking" or other empty filler phrases.
-- EVERY response must mention something specific from the code: a line number, variable name, keyword, or syntax element.
-- Always respond in plain spoken English. No markdown whatsoever.
-- If the code looks completely fine AND the student asked no question, respond with exactly: __SILENT__
-- LANGUAGE-AWARE: Only flag errors valid for the language being used.
-  Python: colons after if/for/def/while, indentation, mismatched brackets — NEVER semicolons.
-  Java/C/C++/JavaScript/TypeScript: semicolons, braces, parentheses — NEVER colons after control flow.
+Emotion guide:
+- "celebratory": the student just resolved a bug or wrote correct code after a struggle
+- "encouraging": gently pointing out an issue for the first time, low escalation_level
+- "concerned": the student has been stuck on the same issue for multiple turns (high escalation_level)
+- "thinking": you are asking a broad, open-ended Socratic question
+- "neutral": factual answers, or no notable emotional context
+
+If code has no errors and no question was asked, your response_text inside the JSON must be exactly: __SILENT__
 """
+
+
+import json
+
+def parse_json_response(raw_text: str) -> tuple[str, str]:
+    """Parse JSON response from LLM into (response_text, emotion)."""
+    if not raw_text:
+        return "", "neutral"
+    raw_text = raw_text.strip()
+    try:
+        # Strip markdown code fences if present (e.g., ```json ... ```)
+        if raw_text.startswith("```"):
+            lines = raw_text.split('\n')
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            raw_text = '\n'.join(lines).strip()
+            
+        data = json.loads(raw_text)
+        text = str(data.get("response_text", "")).strip()
+        emotion = str(data.get("emotion", "neutral")).strip().lower()
+        if emotion not in ("encouraging", "thinking", "concerned", "celebratory", "neutral"):
+            emotion = "neutral"
+        return text, emotion
+    except Exception:
+        import re
+        response_match = re.search(r'"response_text"\s*:\s*"(.*?)"', raw_text, re.DOTALL)
+        emotion_match = re.search(r'"emotion"\s*:\s*"(.*?)"', raw_text, re.DOTALL)
+        
+        text = response_match.group(1) if response_match else raw_text
+        emotion = emotion_match.group(1) if emotion_match else "neutral"
+        
+        if response_match:
+            text = text.replace('\\"', '"').replace('\\n', '\n')
+            
+        emotion = emotion.strip().lower()
+        if emotion not in ("encouraging", "thinking", "concerned", "celebratory", "neutral"):
+            emotion = "neutral"
+        return text.strip(), emotion
+
 
 
 async def analyze_code(
@@ -68,11 +104,33 @@ async def analyze_code(
     conversation_history: list[dict],
     last_error: str | None = None,
     user_question: str | None = None,
-) -> str | None:
+) -> tuple[str | None, str]:
     """
     Analyze code and/or respond to a user question using the configured LLM.
-    Returns the AI's spoken response, or None if the AI should stay silent.
+    Returns (response_text, emotion), or (None, emotion) if the AI should stay silent.
     """
+    clean_code, exam_question, execution_error, execution_success = extract_and_clean_code(code)
+
+    resolved_this_turn = False
+    if last_error:
+        has_error = False
+        if execution_error:
+            has_error = True
+        elif language.lower() in ("python", "py"):
+            try:
+                import ast
+                ast.parse(clean_code)
+            except Exception:
+                has_error = True
+        if not has_error:
+            resolved_this_turn = True
+
+    if "EXECUTION SUCCESS" in code and not user_question:
+        if resolved_this_turn:
+            congratulations_msg = f"Awesome work! You fixed the bug and your {language} code executed successfully!"
+            return congratulations_msg, "celebratory"
+        return None, "neutral"
+
     # Build the messages for the LLM
     messages = [{"role": "system", "content": SOCRATIC_SYSTEM_PROMPT}]
     
@@ -83,15 +141,29 @@ async def analyze_code(
     
     # Build the current context message with line numbers
     context_parts = []
-    
+
+    if exam_question:
+        context_parts.append(
+            f"The student is trying to solve the following exam question/prompt:\n"
+            f"```\n{exam_question}\n```"
+        )
+
     # Add numbered code for easier line reference
-    code_lines = code.split('\n')
+    code_lines = clean_code.split('\n')
     numbered_code = '\n'.join(f"{i+1:3d} | {line}" for i, line in enumerate(code_lines))
     context_parts.append(
         f"The student is writing {language} code. Here is their current code with line numbers:\n"
         f"```\n{numbered_code}\n```"
     )
     
+    if execution_error:
+        context_parts.append(
+            f"The compiler/execution engine returned the following error for this code:\n"
+            f"```\n{execution_error}\n```"
+        )
+    elif execution_success:
+        context_parts.append("The compiler/execution engine verified that this code runs successfully without errors.")
+
     if last_error:
         context_parts.append(f"The last issue you pointed out was: \"{last_error}\"")
     
@@ -133,6 +205,11 @@ async def analyze_code(
                 f"STUDENT SAID: \"{user_question}\"\n"
                 f"Respond naturally and helpfully based on their code and what they said."
             )
+    if resolved_this_turn:
+        context_parts.append(
+            "VICTORY MOMENT: The student just successfully resolved the bug in their code! "
+            "Congratulate them warmly in 1 short spoken sentence (e.g., 'Great job! You fixed the error and your code looks clean now.')."
+        )
     else:
         context_parts.append(
             "The student just updated their code. Scan it for errors or issues. "
@@ -142,14 +219,18 @@ async def analyze_code(
     messages.append({"role": "user", "content": "\n\n".join(context_parts)})
     
     # Route to the available LLM
-    response_text = await _call_llm(messages)
+    response_raw = await _call_llm(messages)
     
-    # If LLMs are unavailable or quota-exhausted, use smart Socratic fallback
-    if not response_text:
-        response_text = _heuristic_socratic_fallback(code, language, last_error, user_question)
+    if response_raw:
+        response_text, emotion = parse_json_response(response_raw)
+    else:
+        response_text, emotion = _heuristic_socratic_fallback(code, language, last_error, user_question)
+
+    if resolved_this_turn:
+        emotion = "celebratory"
 
     if response_text and response_text.strip() == "__SILENT__":
-        return None
+        return None, emotion
     
     # Ensure response ends on a complete sentence — never cut off mid-word
     if response_text:
@@ -163,7 +244,7 @@ async def analyze_code(
             if last_end > len(response_text) // 2:
                 response_text = response_text[:last_end + 1]
     
-    return response_text
+    return response_text, emotion
 
 
 import re as _re
@@ -178,25 +259,58 @@ async def analyze_code_stream(
     user_id: str | None = None,
 ):
     """
-    Async generator that yields completed sentences as they arrive from the
-    Gemini SSE stream, enabling sentence-by-sentence TTS without waiting for
-    the full response.
-
-    Falls back to yielding the full heuristic response in one shot when the
-    LLM is unavailable.
+    Async generator that yields (sentence, emotion) tuples as they arrive.
     """
+    clean_code, exam_question, execution_error, execution_success = extract_and_clean_code(code)
+
+    resolved_this_turn = False
+    if last_error:
+        has_error = False
+        if execution_error:
+            has_error = True
+        elif language.lower() in ("python", "py"):
+            try:
+                import ast
+                ast.parse(clean_code)
+            except Exception:
+                has_error = True
+        if not has_error:
+            resolved_this_turn = True
+
+    if "EXECUTION SUCCESS" in code and not user_question:
+        if resolved_this_turn:
+            congratulations_msg = f"Awesome work! You fixed the bug and your {language} code executed successfully!"
+            yield congratulations_msg, "celebratory"
+        return
+
     messages = [{"role": "system", "content": SOCRATIC_SYSTEM_PROMPT}]
     recent_messages = conversation_history[-10:] if conversation_history else []
     for msg in recent_messages:
         messages.append({"role": msg["role"], "content": msg["content"]})
 
     context_parts = []
-    code_lines = code.split('\n')
+
+    if exam_question:
+        context_parts.append(
+            f"The student is trying to solve the following exam question/prompt:\n"
+            f"```\n{exam_question}\n```"
+        )
+
+    code_lines = clean_code.split('\n')
     numbered_code = '\n'.join(f"{i+1:3d} | {line}" for i, line in enumerate(code_lines))
     context_parts.append(
         f"The student is writing {language} code. Here is their current code with line numbers:\n"
         f"```\n{numbered_code}\n```"
     )
+
+    if execution_error:
+        context_parts.append(
+            f"The compiler/execution engine returned the following error for this code:\n"
+            f"```\n{execution_error}\n```"
+        )
+    elif execution_success:
+        context_parts.append("The compiler/execution engine verified that this code runs successfully without errors.")
+
     if last_error:
         context_parts.append(f"The last issue you pointed out was: \"{last_error}\"")
     if user_question:
@@ -226,6 +340,11 @@ async def analyze_code_stream(
             )
         else:
             context_parts.append(f"STUDENT SAID: \"{user_question}\"")
+    if resolved_this_turn:
+        context_parts.append(
+            "VICTORY MOMENT: The student just successfully resolved the bug in their code! "
+            "Congratulate them warmly in 1 short spoken sentence (e.g., 'Great job! You fixed the error and your code looks clean now.')."
+        )
     else:
         context_parts.append(
             "The student just updated their code. Scan it for errors. "
@@ -233,36 +352,50 @@ async def analyze_code_stream(
         )
     messages.append({"role": "user", "content": "\n\n".join(context_parts)})
 
-    # Try streaming from Gemini
+    # Try fetching from Gemini
     gemini_key = os.getenv("GEMINI_API_KEY")
     streamed_any = False
 
     if gemini_key and time.time() >= _gemini_text_exhausted_until:
-        async for sentence in _stream_gemini_sentences(gemini_key, messages):
-            if sentence.strip() == "__SILENT__":
-                return
+        raw_llm_response = await _call_gemini(gemini_key, messages)
+        if raw_llm_response:
             streamed_any = True
-            
-            # Simple heuristic for tracking mastery from LLM output
+            response_text, emotion = parse_json_response(raw_llm_response)
+
+            if resolved_this_turn:
+                emotion = "celebratory"
+
+            if response_text.strip() == "__SILENT__":
+                yield "__SILENT__", emotion
+                return
+
             if user_id:
-                if "Nice" in sentence or "Great" in sentence:
+                if emotion == "celebratory":
                     await update_skill_mastery(user_id, language, True)
-                elif "Check" in sentence or "Look" in sentence or "missing" in sentence:
+                elif emotion in ("concerned", "encouraging"):
                     await update_skill_mastery(user_id, language, False)
+
+            # Split response into sentences
+            sentences = _SENTENCE_END.split(response_text)
+            for sentence in sentences:
+                if sentence.strip():
+                    yield sentence.strip(), emotion
                     
-            yield sentence
         if streamed_any:
             return
 
-    # Heuristic fallback — yield the whole thing at once
-    fallback = _heuristic_socratic_fallback(code, language, last_error, user_question)
-    if fallback and fallback.strip() != "__SILENT__":
+    # Heuristic fallback
+    fallback_text, emotion = _heuristic_socratic_fallback(code, language, last_error, user_question)
+    if resolved_this_turn:
+        emotion = "celebratory"
+
+    if fallback_text and fallback_text.strip() != "__SILENT__":
         if user_id:
-            if "Nice work!" in fallback:
+            if emotion == "celebratory":
                 await update_skill_mastery(user_id, language, True)
-            elif fallback:
+            elif fallback_text:
                 await update_skill_mastery(user_id, language, False)
-        yield fallback.strip()
+        yield fallback_text.strip(), emotion
 
 
 async def _stream_gemini_sentences(api_key: str, messages: list[dict]):
@@ -294,10 +427,10 @@ async def _stream_gemini_sentences(api_key: str, messages: list[dict]):
         request_body["systemInstruction"] = {"parts": [{"text": system_instruction}]}
 
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-    models_to_try = ["gemini-3.6-flash", "gemini-2.0-flash-lite"]
+    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"]
     all_quota = True
 
-    async with httpx.AsyncClient(verify=_ssl_verify, timeout=20) as client:
+    async with httpx.AsyncClient(verify=_ssl_verify, timeout=8) as client:
         for model_name in models_to_try:
             url = (
                 f"https://generativelanguage.googleapis.com/v1beta/models"
@@ -364,131 +497,262 @@ async def _stream_gemini_sentences(api_key: str, messages: list[dict]):
         print(f"[KOGNIT] All Gemini stream models quota-exhausted — circuit breaker open for {GEMINI_COOLDOWN_SECS}s")
 
 
+# Languages where a missing semicolon is a hard syntax error (not JS/TS — ASI applies).
+SEMICOLON_REQUIRED_LANGUAGES = ("c", "c++", "cpp", "h", "hpp", "java", "csharp", "c#", "go", "rust")
+
+
+def _strip_injected_context(code: str) -> str:
+    """Remove comment blocks injected by the frontend for run/compile context."""
+    return _re.sub(
+        r"/\*\s*(?:RUNTIME ERROR|COMPILE ERROR|EXECUTION SUCCESS|Exam Question)[\s\S]*?\*/",
+        "",
+        code,
+    ).strip()
+
+
+def extract_and_clean_code(code: str) -> tuple[str, str | None, str | None, bool]:
+    exam_question = None
+    execution_error = None
+    execution_success = False
+
+    # Check for exam question at the start
+    exam_match = _re.search(r"/\*\s*Exam Question:\s*(.*?)\s*\*/", code, _re.DOTALL | _re.IGNORECASE)
+    if exam_match:
+        exam_question = exam_match.group(1).strip()
+
+    # Check for compile/runtime errors
+    compile_match = _re.search(r"/\*\s*COMPILE ERROR \(from execution\):\s*(.*?)\s*\*/", code, _re.DOTALL | _re.IGNORECASE)
+    if compile_match:
+        execution_error = f"COMPILE ERROR:\n{compile_match.group(1).strip()}"
+    else:
+        runtime_match = _re.search(r"/\*\s*RUNTIME ERROR \(from execution\):\s*(.*?)\s*\*/", code, _re.DOTALL | _re.IGNORECASE)
+        if runtime_match:
+            execution_error = f"RUNTIME ERROR:\n{runtime_match.group(1).strip()}"
+
+    # Check for execution success
+    if "EXECUTION SUCCESS" in code:
+        execution_success = True
+
+    # Now clean the code by removing these comment blocks
+    clean_code = _re.sub(
+        r"/\*\s*(?:RUNTIME ERROR|COMPILE ERROR|EXECUTION SUCCESS|Exam Question)[\s\S]*?\*/",
+        "",
+        code,
+    ).strip()
+
+    return clean_code, exam_question, execution_error, execution_success
+
+
+
+def _is_c_family_statement_needing_semicolon(stripped: str) -> bool:
+    """Return True when a line looks like a statement that requires a trailing semicolon."""
+    if not stripped or len(stripped) <= 5:
+        return False
+    if stripped.startswith(("#", "//", "/*", "*")):
+        return False
+    if stripped.endswith((";", "{", "}", ":", "\\")):
+        return False
+    # Function prototypes/declarations and control-flow headers end with ')'.
+    if stripped.endswith(")"):
+        return False
+    control_prefixes = (
+        "if ", "if(", "else", "for ", "for(", "while ", "while(",
+        "switch ", "switch(", "case ", "default:", "default ",
+        "catch ", "catch(", "try", "do ", "do{",
+    )
+    for prefix in control_prefixes:
+        if stripped.startswith(prefix) or stripped == prefix.rstrip():
+            return False
+    decl_keywords = (
+        "class ", "struct ", "enum ", "namespace ", "typedef ",
+        "using ", "import ", "export ", "public:", "private:", "protected:",
+        "package ", "@", "interface ", "implements ", "extends ",
+    )
+    for kw in decl_keywords:
+        if stripped.startswith(kw):
+            return False
+    if _re.search(r"\bmain\s*\(", stripped):
+        return False
+    return True
+
+
+def _find_missing_semicolon_line(lines_list: list[str]) -> int | None:
+    """Find the most likely line missing a semicolon; prefer the last match."""
+    candidates: list[int] = []
+    for idx, line in enumerate(lines_list, 1):
+        if _is_c_family_statement_needing_semicolon(line.strip()):
+            candidates.append(idx)
+    return candidates[-1] if candidates else None
+
+
 def _heuristic_socratic_fallback(
     code: str,
     language: str,
     last_error: str | None = None,
     user_question: str | None = None,
-) -> str | None:
+) -> tuple[str | None, str]:
     """
     Fallback Socratic analyzer when LLM API keys are exhausted or unavailable.
     Provides proactive hints and reacts to questions using heuristic static checks across all programming languages.
-    Uses language-aware concept tagging to avoid suggesting invalid errors (e.g., semicolons in Python).
+    Returns (response_text, emotion).
     """
     lang_lower = (language or "").lower()
-    
-    # Detect direct clarifying questions for escalation
-    is_direct_question = False
-    if user_question:
-        question_lower = user_question.lower()
-        clarifying_keywords = ["what is", "where is", "which", "what's", "where's", "show me", "tell me", "what line", "where"]
-        is_direct_question = any(keyword in question_lower for keyword in clarifying_keywords)
-    
-    if user_question and not is_direct_question:
-        return f"When working with {language}, try breaking down your logic step by step to test your hypothesis."
-    
-    if "RUNTIME ERROR" in code:
-        return f"I noticed an execution error in your {language} code. Take a close look at your variable names, types, and includes."
+    is_direct_question = bool(user_question)
+    question_lower = (user_question or "").lower()
+    clean_code, exam_question, execution_error, execution_success = extract_and_clean_code(code)
+
+    if execution_success:
+        emotion = "celebratory" if last_error else "neutral"
+        if user_question:
+            if "error" in question_lower or "bug" in question_lower or "wrong" in question_lower:
+                return f"Your {language} code ran successfully — no errors were found.", emotion
+            if "loop" in question_lower:
+                if "for" in clean_code or "while" in clean_code:
+                    return f"Yes, your {language} code contains a loop.", emotion
+                return f"No loops were found in your {language} code.", emotion
+        return None, emotion
+
+    if execution_error or (last_error and ("RUNTIME ERROR" in last_error or "COMPILE ERROR" in last_error)):
+        target_str = execution_error if execution_error else (last_error or "")
+        line_match = _re.search(r'(?:line|at line|:)\s*(\d+)', target_str, _re.IGNORECASE)
+        line_no = line_match.group(1) if line_match else None
+
+        error_match = _re.search(r'([A-Za-z0-9_]+Error:\s*[^\n]+)', target_str)
+        if not error_match:
+            error_match = _re.search(r'([A-Za-z0-9_]+Exception:\s*[^\n]+)', target_str)
+        if not error_match:
+            error_match = _re.search(
+                r"(expected ['\"].*?['\"] before|missing terminating|syntax error[^\n]*)",
+                target_str,
+                _re.IGNORECASE,
+            )
+
+        if error_match:
+            error_detail = error_match.group(1).strip()
+        else:
+            clean_lines = [
+                l.strip() for l in target_str.split('\n')
+                if l.strip() and "RUNTIME ERROR" not in l and "COMPILE ERROR" not in l
+            ]
+            error_detail = clean_lines[-1] if clean_lines else "execution failed"
+
+        emotion = "concerned" if last_error else "encouraging"
+        if line_no:
+            return f"In line number {line_no} there is an error: {error_detail}.", emotion
+        return f"There is an execution error: {error_detail}.", emotion
+
+    # Default emotion for new error vs persistent error vs question
+    fallback_emotion = "concerned" if last_error else "encouraging"
 
     # Language-specific concept tagging: allowed errors per language family
     PYTHON_LANGUAGES = ("python", "py")
     C_FAMILY_LANGUAGES = ("c", "c++", "cpp", "h", "hpp", "java", "javascript", "typescript", "js", "ts", "csharp", "c#", "go", "rust")
     
     # Universal bracket & parenthesis balance check for all code files
-    open_braces = code.count("{")
-    close_braces = code.count("}")
-    if open_braces > close_braces and lang_lower not in PYTHON_LANGUAGES:
-        return f"Take a look at your curly braces in {language}. You have an unclosed opening brace on one of your lines."
-    elif close_braces > open_braces and lang_lower not in PYTHON_LANGUAGES:
-        return f"Check your braces in {language}. You have an extra closing curly brace somewhere."
+    lines_list = clean_code.split('\n')
+    open_p_total = 0
+    close_p_total = 0
+    for idx, line_str in enumerate(lines_list, 1):
+        op = line_str.count("(")
+        cp = line_str.count(")")
+        open_p_total += op
+        close_p_total += cp
+        if cp > op and close_p_total > open_p_total:
+            return f"In line number {idx} there is an error: extra closing parenthesis ')'..", fallback_emotion
+    if open_p_total > close_p_total:
+        for idx in range(len(lines_list), 0, -1):
+            if lines_list[idx-1].count("(") > lines_list[idx-1].count(")"):
+                return f"In line number {idx} there is an error: unclosed opening parenthesis '('..", fallback_emotion
+        return "In line number 1 there is an error: missing closing parenthesis ')'..", fallback_emotion
 
-    open_parens = code.count("(")
-    close_parens = code.count(")")
-    if open_parens > close_parens:
-        return f"Check your parentheses in {language}. You are missing a closing parenthesis somewhere in your code."
-    elif close_parens > open_parens:
-        return f"Check your parentheses in {language}. You have an extra closing parenthesis."
+    if lang_lower not in PYTHON_LANGUAGES:
+        open_b_total = 0
+        close_b_total = 0
+        for idx, line_str in enumerate(lines_list, 1):
+            ob = line_str.count("{")
+            cb = line_str.count("}")
+            open_b_total += ob
+            close_b_total += cb
+            if cb > ob and close_b_total > open_b_total:
+                return f"In line number {idx} there is an error: extra closing curly brace '}}'..", fallback_emotion
+        if open_b_total > close_b_total:
+            for idx in range(len(lines_list), 0, -1):
+                if lines_list[idx-1].count("{") > lines_list[idx-1].count("}"):
+                    return f"In line number {idx} there is an error: unclosed opening curly brace '{{'..", fallback_emotion
 
     # Python-specific static checks (AST parsing + indentation + colon errors)
     if lang_lower in PYTHON_LANGUAGES:
         import ast
         
         # Check for missing colons after control structures
-        lines = code.split('\n')
-        for idx, line in enumerate(lines, 1):
+        for idx, line in enumerate(lines_list, 1):
             stripped = line.strip()
-            # Check if line starts with control keyword but doesn't end with colon
             control_keywords = ['if ', 'elif ', 'else', 'for ', 'while ', 'def ', 'class ', 'try', 'except', 'finally', 'with ']
             for keyword in control_keywords:
                 if stripped.startswith(keyword) and not stripped.endswith(':') and not stripped.endswith(':\\'):
-                    # Avoid false positives on comments or incomplete lines
                     if len(stripped) > len(keyword) + 2 and '#' not in stripped:
-                        if is_direct_question:
-                            return f"Look at line {idx}. You're missing a colon at the end of that {keyword.strip()} statement."
-                        return f"Take a close look at line {idx}. Something is missing at the end of that line."
+                        return f"In line number {idx} there is an error: missing colon (:) at the end of the {keyword.strip()} statement.", fallback_emotion
         
         # Try parsing with AST
         try:
-            ast.parse(code)
+            ast.parse(clean_code)
+            if user_question:
+                q_emotion = "thinking"
+                if "loop" in question_lower:
+                    if "for " in clean_code or "while " in clean_code:
+                        return "Yes, your Python code contains a loop structure.", q_emotion
+                    return "No, there are no for or while loops in your current Python code.", q_emotion
+                if "function" in question_lower or "def" in question_lower:
+                    if "def " in clean_code:
+                        return "Yes, you have defined a function in your Python code.", q_emotion
+                    return "No function is currently defined in your Python code.", q_emotion
+                if "error" in question_lower or "bug" in question_lower or "wrong" in question_lower or "fix" in question_lower:
+                    return "Your Python code syntax looks completely valid and clean!", q_emotion
+                return "Your Python code syntax is valid and passes inspection.", q_emotion
             if last_error:
-                return "Nice, that fixed the syntax issue! Your Python logic looks clean now."
-            return None
+                return "Nice work! That fixed the syntax issue! Your Python logic looks clean now.", "celebratory"
+            return None, "neutral"
         except SyntaxError as e:
             line_no = getattr(e, 'lineno', None)
             msg = getattr(e, 'msg', 'syntax issue')
             
-            # Provide more specific guidance for common Python errors
-            if 'invalid syntax' in msg.lower():
-                if line_no:
-                    if is_direct_question:
-                        return f"Line {line_no} has a syntax error. Check if you're missing a colon, have incorrect indentation, or mismatched brackets."
-                    return f"Take a close look near line {line_no}. There's something off with the syntax there."
-                return "I noticed a syntax issue with your Python code. Check your colons, indentation, and brackets."
-            
-            if 'expected an indented block' in msg.lower() or 'indent' in msg.lower():
-                return f"Python is very particular about indentation. Check the spacing at the beginning of your lines around line {line_no or 'the error'}."
-            
             if line_no:
-                if is_direct_question:
-                    return f"Look at line {line_no}. There's a {msg} there."
-                return f"Take a close look near line {line_no}. It looks like there is a {msg}."
-            return "I noticed a syntax issue with your Python code. Check your colons and indentation."
+                return f"In line number {line_no} there is an error: {msg}.", fallback_emotion
+            return f"There is an error in your Python syntax: {msg}.", fallback_emotion
 
-    # C / C++ / Java / JavaScript / TypeScript specific static checks
-    # ONLY suggest semicolons for languages that actually require them
     elif lang_lower in C_FAMILY_LANGUAGES:
-        lines = [line.strip() for line in code.split("\n") if line.strip()]
-        for idx, line in enumerate(lines, 1):
-            # Check for missing semicolons in C-family languages
-            if (not line.startswith("#") and 
-                not line.startswith("//") and 
-                not line.startswith("/*") and 
-                not line.endswith("*/") and 
-                not line.endswith("{") and 
-                not line.endswith("}") and 
-                not line.endswith(";") and
-                "main" not in line and
-                "struct" not in line and
-                "class" not in line and
-                "if" not in line and
-                "for" not in line and
-                "while" not in line and
-                len(line) > 5):
-                if is_direct_question:
-                    return f"Look at line {idx}. You're missing a semicolon at the end of that statement."
-                return f"Take a close look near line {idx}. It looks like you might be missing something at the end of that statement."
-        
+        if lang_lower in SEMICOLON_REQUIRED_LANGUAGES:
+            missing_semicolon_line = _find_missing_semicolon_line(lines_list)
+            if missing_semicolon_line:
+                return (
+                    f"In line number {missing_semicolon_line} there is an error: "
+                    f"missing semicolon (;) at the end of the statement.",
+                    fallback_emotion
+                )
+
+        if user_question:
+            q_emotion = "thinking"
+            if "loop" in question_lower:
+                if "for" in clean_code or "while" in clean_code:
+                    return f"Yes, your {language} code contains a loop.", q_emotion
+                return f"No loops were found in your {language} code.", q_emotion
+            if "error" in question_lower or "bug" in question_lower or "wrong" in question_lower:
+                return f"Your {language} code syntax looks clean.", q_emotion
+            return f"Your {language} code syntax is valid.", q_emotion
+            
         if last_error:
-            return f"Nice work! That {language} code syntax issue seems to be resolved now."
+            return f"Nice work! That {language} code syntax issue seems to be resolved now.", "celebratory"
         
-        if "main" not in code and len(code.strip()) > 30 and lang_lower in ("c", "c++", "cpp", "java"):
-            return f"Remember that a {language} program requires a main function or method as its entry point."
+        if "main" not in clean_code and len(clean_code.strip()) > 30 and lang_lower in ("c", "c++", "cpp", "java"):
+            return f"Remember that a {language} program requires a main function or method as its entry point.", fallback_emotion
 
-    # Generic fallback if last error was present
+    if user_question:
+        return f"Your {language} code looks structured. Let me know if you have a specific question about your logic!", "thinking"
+
     if last_error:
-        return f"Nice work! Your {language} code looks much better now."
+        return f"Nice work! Your {language} code looks much better now.", "celebratory"
 
-    return None
+    return None, "neutral"
 
 
 async def _call_llm(messages: list[dict]) -> str | None:
@@ -546,10 +810,10 @@ async def _call_gemini(api_key: str, messages: list[dict]) -> str | None:
         request_body["systemInstruction"] = {"parts": [{"text": system_instruction}]}
 
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-    models_to_try = ["gemini-3.6-flash", "gemini-2.0-flash-lite"]
+    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"]
     all_quota = True  # track whether every failure was a quota error
 
-    async with httpx.AsyncClient(verify=_ssl_verify, timeout=20) as client:
+    async with httpx.AsyncClient(verify=_ssl_verify, timeout=8) as client:
         for model_name in models_to_try:
             # Use streamGenerateContent so we can start reading tokens immediately
             url = (

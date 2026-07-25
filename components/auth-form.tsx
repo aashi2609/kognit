@@ -1,8 +1,8 @@
 "use client"
 
-import { motion, AnimatePresence } from "motion/react"
+import { motion } from "motion/react"
 import Link from "next/link"
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useState } from "react"
 import { Eye, EyeOff } from "lucide-react"
 import { useSignIn, useSignUp } from "@clerk/nextjs"
 import { useRouter } from "next/navigation"
@@ -46,34 +46,16 @@ export function AuthForm({
 
   const isSignup = variant === "signup"
 
-  // Password strength calculation
-  const strength = useMemo(() => {
-    if (password.length === 0) return 0
-    let score = 0
-    if (password.length >= 6) score++
-    if (password.length >= 10 && /[A-Z]/.test(password) && /[0-9]/.test(password))
-      score++
-    if (
-      password.length >= 12 &&
-      /[^A-Za-z0-9]/.test(password) &&
-      /[A-Z]/.test(password)
-    )
-      score++
-    return score
-  }, [password])
-
-  const strengthLabel = ["", "weak", "medium", "strong"][strength]
-  const strengthColor = [
-    "oklch(1 0 0 / 8%)",
-    "oklch(0.7 0.15 30)",
-    "oklch(0.78 0.12 90)",
-    "oklch(0.78 0.09 165)",
-  ][strength]
-
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault()
       setError("")
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      if (!email || !emailRegex.test(email.trim())) {
+        setError("Please enter a valid email address")
+        return
+      }
 
       if (isSignup) {
         if (!isSignUpLoaded) return
@@ -83,7 +65,7 @@ export function AuthForm({
             return
           }
           await signUp.create({
-            emailAddress: email,
+            emailAddress: email.trim(),
             password,
           })
           
@@ -101,7 +83,7 @@ export function AuthForm({
         if (!isSignInLoaded) return
         try {
           const result = await signIn.create({
-            identifier: email,
+            identifier: email.trim(),
             password,
           })
 
@@ -274,41 +256,6 @@ export function AuthForm({
             {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
         </div>
-
-        {/* Password strength bar (signup only) */}
-        {isSignup && password.length > 0 && (
-          <div className="mt-1 flex flex-col gap-1">
-            <div className="flex gap-1.5">
-              {[1, 2, 3].map((tier) => (
-                <div key={tier} className="strength-bar flex-1">
-                  <motion.div
-                    className="strength-bar-fill"
-                    initial={{ width: "0%" }}
-                    animate={{
-                      width: strength >= tier ? "100%" : "0%",
-                      background: strengthColor,
-                    }}
-                    transition={{ duration: 0.4, ease: "easeOut" }}
-                  />
-                </div>
-              ))}
-            </div>
-            <AnimatePresence mode="wait">
-              {strengthLabel && (
-                <motion.span
-                  key={strengthLabel}
-                  initial={{ opacity: 0, y: -4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 4 }}
-                  className="font-mono text-[10px] uppercase tracking-[0.18em]"
-                  style={{ color: strengthColor }}
-                >
-                  {strengthLabel}
-                </motion.span>
-              )}
-            </AnimatePresence>
-          </div>
-        )}
       </div>
 
       {/* Confirm password (signup only) */}

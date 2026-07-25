@@ -1,8 +1,11 @@
 "use client"
 
 import { motion } from "motion/react"
+import { useEffect, useRef } from "react"
+import confetti from "canvas-confetti"
 
 export type Expression = "happy" | "focus" | "panic" | "shock"
+export type AiEmotion = "encouraging" | "thinking" | "concerned" | "celebratory" | "neutral"
 
 /**
  * A structurally stabilized stylized vector student character.
@@ -10,31 +13,129 @@ export type Expression = "happy" | "focus" | "panic" | "shock"
  */
 export function StudentCharacter({
   expression = "happy",
+  emotion = "neutral",
   juggle = false,
   eyeTarget,
   coverEyes = false,
   isSpeaking = false,
+  showConfetti = false,
   className,
 }: {
   expression?: Expression
+  emotion?: AiEmotion
   juggle?: boolean
   eyeTarget?: { x: number; y: number }
   coverEyes?: boolean
   isSpeaking?: boolean
+  showConfetti?: boolean
   className?: string
 }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+
+  const triggerConfetti = showConfetti || emotion === "celebratory"
+
+  useEffect(() => {
+    if (triggerConfetti && canvasRef.current) {
+      const myConfetti = confetti.create(canvasRef.current, {
+        resize: true,
+        useWorker: true,
+      })
+
+      const count = 150
+      const defaults = { origin: { y: 0.6 } }
+
+      function fire(particleRatio: number, opts: confetti.Options) {
+        myConfetti({
+          ...defaults,
+          ...opts,
+          particleCount: Math.floor(count * particleRatio),
+        })
+      }
+
+      fire(0.25, {
+        spread: 40,
+        startVelocity: 45,
+        colors: ["#34d399", "#38bdf8", "#f472b6", "#fbbf24"],
+      })
+      fire(0.2, {
+        spread: 70,
+        colors: ["#34d399", "#a78bfa", "#38bdf8"],
+      })
+      fire(0.35, {
+        spread: 100,
+        decay: 0.91,
+        scalar: 0.9,
+      })
+      fire(0.1, {
+        spread: 120,
+        startVelocity: 25,
+        decay: 0.92,
+        colors: ["#34d399", "#f472b6"],
+      })
+    }
+  }, [triggerConfetti])
+
   // Compute pupil offsets from eye target
   const pupilDx = eyeTarget ? Math.max(-4, Math.min(4, eyeTarget.x * 5)) : 0
   const pupilDy = eyeTarget ? Math.max(-3, Math.min(3, eyeTarget.y * 3)) : 0
   const headTilt = eyeTarget ? eyeTarget.x * 3 : 0
 
+  const effectiveExpression: Expression =
+    emotion === "concerned"
+      ? "panic"
+      : emotion === "thinking"
+        ? "focus"
+        : emotion === "celebratory" || emotion === "encouraging"
+          ? "happy"
+          : expression
+
+  const emotionStyle: React.CSSProperties = {
+    transition: "filter 0.5s ease-in-out",
+    filter:
+      emotion === "celebratory"
+        ? "brightness(1.2) saturate(1.15)"
+        : emotion === "concerned"
+          ? "brightness(0.85) saturate(0.85)"
+          : emotion === "thinking"
+            ? "brightness(1.05) saturate(1.05)"
+            : "brightness(1.0) saturate(1.0)",
+  }
+
+  const characterAnimate =
+    emotion === "celebratory"
+      ? { scale: [1, 1.12, 1], y: [0, -8, 0] }
+      : emotion === "concerned"
+        ? { scale: 0.97, y: 4, rotate: 0 }
+        : emotion === "thinking"
+          ? { scale: 1, x: [-2, 2, -2], rotate: [-1, 1, -1] }
+          : emotion === "encouraging"
+            ? { scale: 1, y: [0, 4, 0, 2, 0] }
+            : { scale: 1, x: 0, y: 0, rotate: 0 }
+
+  const characterTransition: any =
+    emotion === "celebratory"
+      ? { duration: 0.5, ease: "easeInOut" }
+      : emotion === "thinking"
+        ? { duration: 3.5, repeat: Infinity, ease: "easeInOut" }
+        : emotion === "encouraging"
+          ? { duration: 0.6, ease: "easeInOut" }
+          : { duration: 0.5, ease: "easeInOut" }
+
   return (
-    <svg
-      viewBox="0 0 240 300"
-      className={className}
-      role="img"
-      aria-label="Kognit student character"
-    >
+    <div className={`relative flex items-center justify-center ${className || ""}`}>
+      <canvas
+        ref={canvasRef}
+        className="pointer-events-none absolute inset-0 -z-10 h-full w-full"
+      />
+      <motion.svg
+        viewBox="0 0 240 300"
+        className="h-full w-full relative z-0"
+        role="img"
+        aria-label="Kognit student character"
+        style={emotionStyle}
+        animate={characterAnimate}
+        transition={characterTransition}
+      >
       <defs>
         <linearGradient id="hoodie" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="oklch(0.55 0.12 350)" />
@@ -265,10 +366,10 @@ export function StudentCharacter({
         />
 
         {/* Eyebrows */}
-        <Brows expression={expression} />
+        <Brows expression={effectiveExpression} />
         {/* Eyes */}
         <Eyes
-          expression={expression}
+          expression={effectiveExpression}
           pupilDx={pupilDx}
           pupilDy={pupilDy}
           coverEyes={coverEyes}
@@ -282,10 +383,10 @@ export function StudentCharacter({
           strokeLinecap="round"
         />
         {/* Mouth */}
-        <Mouth expression={expression} isSpeaking={isSpeaking} />
+        <Mouth expression={effectiveExpression} isSpeaking={isSpeaking} />
 
         {/* Panic sweat */}
-        {(expression === "panic" || expression === "shock") && (
+        {(effectiveExpression === "panic" || effectiveExpression === "shock") && (
           <>
             <motion.path
               d="M156 104 q4 8 0 14 q-4 -6 0 -14 Z"
@@ -501,7 +602,8 @@ export function StudentCharacter({
         </motion.g>
       </motion.g>
 
-    </svg>
+    </motion.svg>
+    </div>
   )
 }
 
@@ -551,16 +653,16 @@ function Eyes({
           cy={117}
           r="5"
           fill="oklch(0.2 0.02 60)"
-          animate={{ x: [-3, 3, -2, 4, -3], y: [-2, 2, -1, 1, -2] }}
-          transition={{ duration: 0.4, repeat: Infinity }}
+          animate={{ x: [-3, 3, -2, 4, 0], y: [-2, 2, -1, 1, 0] }}
+          transition={{ duration: 1.0, repeat: 0 }}
         />
         <motion.circle
           cx={136}
           cy={117}
           r="5"
           fill="oklch(0.2 0.02 60)"
-          animate={{ x: [3, -3, 2, -4, 3], y: [2, -2, 1, -1, 2] }}
-          transition={{ duration: 0.4, repeat: Infinity }}
+          animate={{ x: [3, -3, 2, -4, 0], y: [2, -2, 1, -1, 0] }}
+          transition={{ duration: 1.0, repeat: 0 }}
         />
         <circle cx="106" cy="114" r="1.5" fill="white" opacity="0.8" />
         <circle cx="138" cy="114" r="1.5" fill="white" opacity="0.8" />
@@ -578,16 +680,16 @@ function Eyes({
           cy={117}
           fill="oklch(0.15 0.02 60)"
           initial={{ r: 6 }}
-          animate={{ r: [6, 7, 6], x: [-1, 1, -1] }}
-          transition={{ duration: 0.8, repeat: Infinity }}
+          animate={{ r: [6, 7, 6], x: [-1, 1, 0] }}
+          transition={{ duration: 1.0, repeat: 0 }}
         />
         <motion.circle
           cx={136}
           cy={117}
           fill="oklch(0.15 0.02 60)"
           initial={{ r: 6 }}
-          animate={{ r: [6, 7, 6], x: [1, -1, 1] }}
-          transition={{ duration: 0.8, repeat: Infinity }}
+          animate={{ r: [6, 7, 6], x: [1, -1, 0] }}
+          transition={{ duration: 1.0, repeat: 0 }}
         />
         <circle
           cx="104"
