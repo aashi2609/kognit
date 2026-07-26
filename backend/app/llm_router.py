@@ -13,16 +13,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+from app.gemini_config import GEMINI_MODELS
+
+
 def get_available_models() -> list[str]:
     """
     Returns a list of model names that are actually usable
     based on which API keys are present in the environment.
-    Gemini is always available if GEMINI_API_KEY is set.
     """
     models: list[str] = []
 
     if os.getenv("GEMINI_API_KEY"):
-        models.append("gemini-2.0-flash")
+        models.extend(GEMINI_MODELS)  # single source of truth from gemini_config
 
     if os.getenv("OPENAI_API_KEY"):
         models.append("gpt-4o")

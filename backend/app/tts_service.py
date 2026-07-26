@@ -119,56 +119,69 @@ def audio_to_base64(audio_bytes: bytes) -> str:
 
 async def stream_tts_to_ws(sentence: str, ws: WebSocket) -> bool:
     """
-    Convert one sentence to speech via ElevenLabs streaming endpoint and
-    send the complete sentence audio as a single 'tts_chunk' event once all
-    chunks have been received. This avoids the gap problem from playing
-    tiny individual MP3 fragments.
+    Convert one sentence to speech via ElevenLabs and send audio to the
+    frontend with an early flush — browser starts playing after ~8 KB
+    instead of waiting for the entire response.
 
-    Returns True if audio was sent, False on failure/no key.
+    Returns True if any audio was sent, False on failure/no key.
     """
     api_key = os.getenv("ELEVENLABS_API_KEY")
     if not api_key:
         return False
 
     clean_sentence = prepare_text_for_tts(sentence)
+    FIRST_FLUSH = 8_000  # bytes — enough for ~0.5s at 128kbps
 
-    # Collect all chunks for this sentence in a thread, then send as one blob
     loop = asyncio.get_running_loop()
-    audio_bytes = await asyncio.to_thread(_collect_tts_sync, clean_sentence, api_key)
+    queue: asyncio.Queue = asyncio.Queue()
 
-    if not audio_bytes:
-        return False
+    def _producer():
+        """Runs in a thread: streams ElevenLabs chunks into the queue."""
+        try:
+            client = _make_elevenlabs_client(api_key)
+            buffer: list[bytes] = []
+            buffered = 0
+            first_sent = False
 
-    b64 = base64.b64encode(audio_bytes).decode("utf-8")
-    await _safe_send(ws, {"type": "tts_chunk", "audio": b64, "format": "mp3"})
-    print(f"[KOGNIT] TTS stream: '{clean_sentence[:50]}' → {len(audio_bytes)} bytes")
-    return True
+            for chunk in client.text_to_speech.stream(
+                voice_id=_VOICE_ID,
+                text=clean_sentence,
+                model_id="eleven_flash_v2_5",
+                output_format=_OUTPUT_FORMAT,
+            ):
+                if not chunk:
+                    continue
+                buffer.append(chunk)
+                buffered += len(chunk)
 
+                if not first_sent and buffered >= FIRST_FLUSH:
+                    first_sent = True
+                    data = b"".join(buffer)
+                    buffer, buffered = [], 0
+                    loop.call_soon_threadsafe(queue.put_nowait, data)
 
-def _collect_tts_sync(sentence: str, api_key: str) -> bytes | None:
-    """
-    Stream audio from ElevenLabs using the documented .stream() method on the
-    standard synchronous client (same client as the working .convert() path).
-    Collects all chunks into one MP3 buffer and logs each chunk size so we
-    can confirm real progressive streaming rather than one giant response.
-    """
-    try:
-        client = _make_elevenlabs_client(api_key)
-        chunks: list[bytes] = []
-        for chunk in client.text_to_speech.stream(
-            voice_id=_VOICE_ID,
-            text=sentence,
-            model_id="eleven_flash_v2_5",   # low-latency streaming model
-            output_format=_OUTPUT_FORMAT,
-        ):
-            if chunk:
-                chunks.append(chunk)
-        total = sum(len(c) for c in chunks)
-        print(f"[KOGNIT] TTS stream complete: {len(chunks)} chunks, {total} bytes total for '{sentence[:40]}'")
-        return b"".join(chunks) if chunks else None
-    except Exception as e:
-        print(f"[KOGNIT] ElevenLabs stream TTS error: {e}")
-        return None
+            # Flush remainder
+            if buffer:
+                loop.call_soon_threadsafe(queue.put_nowait, b"".join(buffer))
+        except Exception as e:
+            print(f"[KOGNIT] ElevenLabs stream error: {e}")
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, None)  # sentinel
+
+    # Run producer in thread, consume from queue in async context
+    asyncio.get_running_loop().run_in_executor(None, _producer)
+
+    sent_any = False
+    while True:
+        data = await queue.get()
+        if data is None:
+            break
+        b64 = base64.b64encode(data).decode("utf-8")
+        await _safe_send(ws, {"type": "tts_chunk", "audio": b64, "format": "mp3"})
+        print(f"[KOGNIT] TTS flush: {len(data)} bytes for '{clean_sentence[:40]}'")
+        sent_any = True
+
+    return sent_any
 
 
 async def _safe_send(ws: WebSocket, event: dict) -> None:

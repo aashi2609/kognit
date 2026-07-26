@@ -1,11 +1,13 @@
 import httpx
+import os
 import time
 import re
 from fastapi import HTTPException
-from pydantic import BaseModel
 
 WANDBOX_API_RUNTIMES = "https://wandbox.org/api/list.json"
 WANDBOX_API_EXECUTE = "https://wandbox.org/api/compile.json"
+
+_SSL_VERIFY = os.getenv("KOGNIT_SSL_VERIFY", "0") not in ("0", "false", "no")
 
 # In-memory cache for Wandbox compilers
 _runtime_cache = {
@@ -23,7 +25,7 @@ async def get_piston_runtimes():
         return _runtime_cache["data"]
         
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=_SSL_VERIFY) as client:
             resp = await client.get(WANDBOX_API_RUNTIMES)
             resp.raise_for_status()
             runtimes = resp.json()
@@ -122,7 +124,7 @@ async def execute_code(language: str, code: str, saved_filename: str, stdin: str
         payload_code = re.sub(r'public\s+class\s+', 'class ', code)
         
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=15.0, verify=_SSL_VERIFY) as client:
             resp = await client.post(
                 WANDBOX_API_EXECUTE,
                 json={

@@ -541,8 +541,11 @@ export default function DashboardPage() {
     fetchWithAuth(`${API_BASE}/files`)
       .then(res => res.json())
       .then(data => {
-        setFiles(data)
-        if (data.length > 0) setActiveFileId(data[0].id)
+        // Guard: backend may return an error object instead of an array
+        // if auth is still initialising or the token is briefly unavailable.
+        const fileList = Array.isArray(data) ? data : []
+        setFiles(fileList)
+        if (fileList.length > 0) setActiveFileId(fileList[0].id)
         setIsLoading(false)
       })
       .catch(err => {
@@ -626,7 +629,7 @@ export default function DashboardPage() {
     try {
       const res = await fetchWithAuth(`${API_BASE}/files`)
       const data = await res.json()
-      setFiles(data)
+      setFiles(Array.isArray(data) ? data : [])
       addLog('info', '[KOGNIT] Workspace refreshed')
     } catch (err) {
       addLog('error', '[KOGNIT] Failed to refresh workspace')

@@ -301,7 +301,7 @@ export function useKognitTutor() {
       createRecorder()
 
       // 3. Adaptive VAD threshold checking
-      const SILENCE_THRESHOLD = 0.003
+      const SILENCE_THRESHOLD = 0.015  // raised from 0.003 — filters ambient noise and speaker bleed
       const SILENCE_DURATION = 1200
       const BARGE_IN_GUARD_MS = 400  // ignore VAD for 400ms after AI starts speaking
       const dataArray = new Float32Array(analyser.fftSize)
@@ -316,6 +316,12 @@ export function useKognitTutor() {
           sum += dataArray[i] * dataArray[i]
         }
         const rms = Math.sqrt(sum / dataArray.length)
+
+        // Suppress VAD entirely while AI is speaking — prevents mic picking up speaker output
+        if (isAudioPlayingRef.current) {
+          vadFrameRef.current = requestAnimationFrame(checkVAD)
+          return
+        }
 
         if (rms > SILENCE_THRESHOLD) {
           // ── Barge-in detection ──────────────────────────────────────
@@ -406,6 +412,12 @@ export function useKognitTutor() {
   const sendAudioChunk = useCallback(async (blob: Blob) => {
     if (!blob || blob.size < 200) return
     if (wsRef.current?.readyState !== WebSocket.OPEN) return
+
+    // Drop audio chunks captured while AI was speaking — they contain speaker bleed
+    if (isAudioPlayingRef.current) {
+      console.log('[KOGNIT] Dropped audio chunk — AI was speaking (speaker bleed guard)')
+      return
+    }
     
     try {
       setAiState('thinking')

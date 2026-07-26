@@ -139,26 +139,38 @@ async def _handle_code_update(session_id: str, ws: WebSocket, event: dict):
     if existing_task and not existing_task.done():
         existing_task.cancel()
 
+    # Execution results (SUCCESS or ERROR from the runner) are high-priority —
+    # cancel any in-progress speaking turn so the AI reacts immediately.
+    is_execution_result = "EXECUTION SUCCESS" in code or "RUNTIME ERROR (from execution)" in code or "COMPILE ERROR (from execution)" in code
+    if is_execution_result:
+        _get_barge_in(session_id).set()  # cuts off any currently-speaking error message
+        debounce = 0.2  # near-instant for execution results
+    else:
+        debounce = CODE_ANALYSIS_DEBOUNCE
+
     _analysis_tasks[session_id] = asyncio.create_task(
-        _debounced_analysis(session_id, ws, code, language)
+        _debounced_analysis(session_id, ws, code, language, debounce)
     )
 
 
-async def _debounced_analysis(session_id: str, ws: WebSocket, code: str, language: str):
+async def _debounced_analysis(session_id: str, ws: WebSocket, code: str, language: str, debounce: float = CODE_ANALYSIS_DEBOUNCE):
     try:
-        await asyncio.sleep(CODE_ANALYSIS_DEBOUNCE)
+        await asyncio.sleep(debounce)
     except asyncio.CancelledError:
         return
 
     if len(code.strip()) < 10:
         return
 
+    is_execution_result = "EXECUTION SUCCESS" in code or "RUNTIME ERROR (from execution)" in code or "COMPILE ERROR (from execution)" in code
+
     lock = _get_turn_lock(session_id)
-    if lock.locked():
+    if lock.locked() and not is_execution_result:
         print(f"[KOGNIT] Skipping background analysis — turn active ({session_id})")
         return
 
     async with lock:
+        _get_barge_in(session_id).clear()  # clear any barge-in we set above before starting fresh
         await _run_ai_turn(session_id, ws, code, language, user_question=None)
 
 
@@ -178,12 +190,22 @@ async def _handle_audio_in(session_id: str, ws: WebSocket, event: dict):
         await _send_event(ws, {"type": "ai_state", "state": "idle"})
         return
 
+    # Discard noise transcripts — single punctuation, whitespace-only,
+    # or very short strings that are clearly not real speech
+    transcript_clean = transcript.strip().strip(".,!?;: ")
+    if len(transcript_clean) < 3:
+        print(f"[KOGNIT] STT noise discarded: '{transcript}'")
+        await _send_event(ws, {"type": "ai_state", "state": "idle"})
+        return
+
     await _send_event(ws, {"type": "user_transcript", "text": transcript})
     add_message(session_id, "user", transcript)
 
-    session = get_session(session_id)
     lock = _get_turn_lock(session_id)
     async with lock:
+        # Fetch session AFTER acquiring the lock so we always use the
+        # latest code snapshot even if a code_update arrived during STT.
+        session = get_session(session_id)
         await _run_ai_turn(
             session_id, ws,
             code=session.get("code_snapshot", ""),
@@ -270,7 +292,14 @@ async def _run_ai_turn(
     if full_response_parts:
         full_response = " ".join(full_response_parts)
         add_message(session_id, "assistant", full_response)
-        set_last_error(session_id, full_response)
+        # Only mark as last_error if the response actually describes an error/bug.
+        # This keeps the bug-resolved detector accurate — it checks whether
+        # last_error is set to decide if the student just fixed something.
+        error_keywords = ("error", "missing", "unclosed", "semicolon", "colon", "indent",
+                          "parenthesis", "brace", "bracket", "undefined", "syntax", "bug", "line")
+        response_lower = full_response.lower()
+        if any(kw in response_lower for kw in error_keywords):
+            set_last_error(session_id, full_response)
         # Update UI with the complete assembled response and emotion
         await _send_event(ws, {"type": "ai_response", "text": full_response, "emotion": last_emotion})
     elif not used_stream and not user_question:

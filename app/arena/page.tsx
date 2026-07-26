@@ -411,6 +411,9 @@ export default function ArenaPage() {
       if (compile?.stderr) {
         addTerminalLog('warn', `[COMPILE] ${compile.stderr}`)
         outputProduced = true
+        // Notify AI about compile error immediately
+        const codeWithError = `${answer}\n/* COMPILE ERROR (from execution):\n${compile.stderr}\n*/`
+        sendCodeUpdate(codeWithError, langToRun)
       }
 
       if (run?.stdout) {
@@ -429,10 +432,20 @@ export default function ArenaPage() {
 
       if (run?.code !== 0 && run?.code !== undefined) {
         addTerminalLog('error', `[RUN] Process exited with exit code ${run.code}`)
+        // Notify AI about the runtime/compile error
+        const errorDetail = run.stderr || compile?.stderr || `exit code ${run.code}`
+        const codeWithError = `${answer}\n/* RUNTIME ERROR (from execution):\n${errorDetail}\n*/`
+        sendCodeUpdate(codeWithError, langToRun)
       } else if (!outputProduced) {
         addTerminalLog('success', '[RUN] Program finished with 0 errors (no output printed)')
+        // Notify AI of clean execution
+        const codeWithSuccess = `${answer}\n/* EXECUTION SUCCESS */`
+        sendCodeUpdate(codeWithSuccess, langToRun)
       } else {
         addTerminalLog('success', '[RUN] Execution complete ✓')
+        // Notify AI of successful execution with output
+        const codeWithSuccess = `${answer}\n/* EXECUTION SUCCESS */`
+        sendCodeUpdate(codeWithSuccess, langToRun)
       }
     } catch (err: any) {
       clearTimeout(timeoutId)

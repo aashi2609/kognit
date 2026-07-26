@@ -13,15 +13,14 @@ import time
 from dotenv import load_dotenv
 from app.database import AsyncSessionLocal
 from sqlalchemy import text
+from app.gemini_config import (
+    GEMINI_MODELS,
+    SSL_VERIFY as _SSL_VERIFY,
+    text_breaker_open,
+    trip_text_breaker,
+)
 
 load_dotenv()
-
-# ── Circuit breaker ───────────────────────────────────────────────────
-# Tracks when ALL Gemini text-analysis models were last found exhausted.
-# While time.time() < _gemini_text_exhausted_until, we skip straight to
-# the heuristic fallback without firing a single HTTP request.
-_gemini_text_exhausted_until: float = 0.0
-GEMINI_COOLDOWN_SECS = 120  # 2-minute backoff after full quota exhaustion
 
 # System prompt that makes the AI behave as a conversational coding tutor
 SOCRATIC_SYSTEM_PROMPT = """You are Kognit, an AI coding tutor watching a student write code in real time.
@@ -41,6 +40,8 @@ Personality & Format:
 LANGUAGE-AWARE RULES:
 - Python: colons after control statements (if/for/def/while), indentation, mismatched brackets. NEVER suggest semicolons.
 - Java/C/C++/JS/TS: semicolons, braces, parentheses. NEVER suggest colons after control flow.
+- Java specifically: BOTH "String[] args" and "String args[]" are valid Java syntax — never flag "String args[]" as an error. Only flag things that would actually cause a compile or runtime failure.
+- NEVER flag style preferences or alternate valid syntax as errors. Only report things that are genuinely broken.
 
 JSON RESPONSE FORMAT:
 Always respond with a single JSON object, nothing else, in this exact shape:
@@ -54,6 +55,7 @@ Emotion guide:
 - "neutral": factual answers, or no notable emotional context
 
 If code has no errors and no question was asked, your response_text inside the JSON must be exactly: __SILENT__
+If a question WAS asked, you MUST always answer it — never return __SILENT__ when the student has spoken to you.
 """
 
 
@@ -64,16 +66,21 @@ def parse_json_response(raw_text: str) -> tuple[str, str]:
     if not raw_text:
         return "", "neutral"
     raw_text = raw_text.strip()
+
+    # Strip markdown code fences if present
+    if raw_text.startswith("```"):
+        lines = raw_text.split('\n')
+        lines = lines[1:] if lines[0].startswith("```") else lines
+        lines = lines[:-1] if lines and lines[-1].startswith("```") else lines
+        raw_text = '\n'.join(lines).strip()
+
+    # Try to find the JSON object even if the LLM added extra text around it
+    import re as _re2
+    json_match = _re2.search(r'\{[\s\S]*\}', raw_text)
+    if json_match:
+        raw_text = json_match.group(0)
+
     try:
-        # Strip markdown code fences if present (e.g., ```json ... ```)
-        if raw_text.startswith("```"):
-            lines = raw_text.split('\n')
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].startswith("```"):
-                lines = lines[:-1]
-            raw_text = '\n'.join(lines).strip()
-            
         data = json.loads(raw_text)
         text = str(data.get("response_text", "")).strip()
         emotion = str(data.get("emotion", "neutral")).strip().lower()
@@ -81,19 +88,15 @@ def parse_json_response(raw_text: str) -> tuple[str, str]:
             emotion = "neutral"
         return text, emotion
     except Exception:
-        import re
-        response_match = re.search(r'"response_text"\s*:\s*"(.*?)"', raw_text, re.DOTALL)
-        emotion_match = re.search(r'"emotion"\s*:\s*"(.*?)"', raw_text, re.DOTALL)
-        
-        text = response_match.group(1) if response_match else raw_text
-        emotion = emotion_match.group(1) if emotion_match else "neutral"
-        
-        if response_match:
-            text = text.replace('\\"', '"').replace('\\n', '\n')
-            
-        emotion = emotion.strip().lower()
+        # Last resort: regex extraction
+        response_match = _re2.search(r'"response_text"\s*:\s*"((?:[^"\\]|\\.)*)"', raw_text)
+        emotion_match = _re2.search(r'"emotion"\s*:\s*"([^"]+)"', raw_text)
+        text = response_match.group(1).replace('\\"', '"').replace('\\n', '\n') if response_match else ""
+        emotion = emotion_match.group(1).strip().lower() if emotion_match else "neutral"
         if emotion not in ("encouraging", "thinking", "concerned", "celebratory", "neutral"):
             emotion = "neutral"
+        # If we still couldn't extract a clean response_text, return empty
+        # so the caller falls through to heuristic rather than speaking raw JSON
         return text.strip(), emotion
 
 
@@ -210,6 +213,11 @@ async def analyze_code(
             "VICTORY MOMENT: The student just successfully resolved the bug in their code! "
             "Congratulate them warmly in 1 short spoken sentence (e.g., 'Great job! You fixed the error and your code looks clean now.')."
         )
+    elif user_question:
+        context_parts.append(
+            "The student just asked a question — you MUST answer it directly. "
+            "If the code looks correct, confirm that clearly. Never return __SILENT__ when the student has spoken."
+        )
     else:
         context_parts.append(
             "The student just updated their code. Scan it for errors or issues. "
@@ -274,6 +282,11 @@ async def analyze_code_stream(
                 ast.parse(clean_code)
             except Exception:
                 has_error = True
+        elif language.lower() in ("java", "c", "c++", "cpp", "javascript", "typescript", "js", "ts"):
+            # For compiled/typed languages we can't truly verify without a compiler.
+            # Only mark as resolved if execution_success is explicitly present —
+            # never assume resolved just because no static check found anything.
+            has_error = not execution_success
         if not has_error:
             resolved_this_turn = True
 
@@ -345,6 +358,11 @@ async def analyze_code_stream(
             "VICTORY MOMENT: The student just successfully resolved the bug in their code! "
             "Congratulate them warmly in 1 short spoken sentence (e.g., 'Great job! You fixed the error and your code looks clean now.')."
         )
+    elif user_question:
+        context_parts.append(
+            "The student just asked a question — you MUST answer it directly. "
+            "If the code looks correct, confirm that clearly. Never return __SILENT__ when the student has spoken."
+        )
     else:
         context_parts.append(
             "The student just updated their code. Scan it for errors. "
@@ -354,9 +372,10 @@ async def analyze_code_stream(
 
     # Try fetching from Gemini
     gemini_key = os.getenv("GEMINI_API_KEY")
+    groq_key = os.getenv("GROQ_API_KEY")
     streamed_any = False
 
-    if gemini_key and time.time() >= _gemini_text_exhausted_until:
+    if gemini_key and not text_breaker_open():
         raw_llm_response = await _call_gemini(gemini_key, messages)
         if raw_llm_response:
             streamed_any = True
@@ -375,14 +394,37 @@ async def analyze_code_stream(
                 elif emotion in ("concerned", "encouraging"):
                     await update_skill_mastery(user_id, language, False)
 
-            # Split response into sentences
             sentences = _SENTENCE_END.split(response_text)
             for sentence in sentences:
                 if sentence.strip():
                     yield sentence.strip(), emotion
-                    
-        if streamed_any:
-            return
+
+    if not streamed_any and groq_key:
+        raw_llm_response = await _call_groq(groq_key, messages)
+        if raw_llm_response:
+            streamed_any = True
+            response_text, emotion = parse_json_response(raw_llm_response)
+
+            if resolved_this_turn:
+                emotion = "celebratory"
+
+            if response_text.strip() == "__SILENT__":
+                yield "__SILENT__", emotion
+                return
+
+            if user_id:
+                if emotion == "celebratory":
+                    await update_skill_mastery(user_id, language, True)
+                elif emotion in ("concerned", "encouraging"):
+                    await update_skill_mastery(user_id, language, False)
+
+            sentences = _SENTENCE_END.split(response_text)
+            for sentence in sentences:
+                if sentence.strip():
+                    yield sentence.strip(), emotion
+
+    if streamed_any:
+        return
 
     # Heuristic fallback
     fallback_text, emotion = _heuristic_socratic_fallback(code, language, last_error, user_question)
@@ -400,15 +442,10 @@ async def analyze_code_stream(
 
 async def _stream_gemini_sentences(api_key: str, messages: list[dict]):
     """
-    Inner generator: connects to Gemini SSE, buffers token chunks, and
-    yields complete sentences (split on .!? + whitespace) as they form.
-    Trips the circuit breaker on full quota exhaustion.
+    Inner generator: connects to Gemini SSE and yields complete sentences.
+    Uses GEMINI_MODELS from gemini_config. Trips the shared circuit breaker.
     """
     import httpx
-
-    global _gemini_text_exhausted_until
-
-    _ssl_verify = os.getenv("KOGNIT_SSL_VERIFY", "0") not in ("0", "false", "no")
 
     system_instruction = ""
     contents = []
@@ -427,11 +464,10 @@ async def _stream_gemini_sentences(api_key: str, messages: list[dict]):
         request_body["systemInstruction"] = {"parts": [{"text": system_instruction}]}
 
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"]
     all_quota = True
 
-    async with httpx.AsyncClient(verify=_ssl_verify, timeout=8) as client:
-        for model_name in models_to_try:
+    async with httpx.AsyncClient(verify=_SSL_VERIFY, timeout=8) as client:
+        for model_name in GEMINI_MODELS:
             url = (
                 f"https://generativelanguage.googleapis.com/v1beta/models"
                 f"/{model_name}:streamGenerateContent?alt=sse"
@@ -470,7 +506,6 @@ async def _stream_gemini_sentences(api_key: str, messages: list[dict]):
                         except Exception:
                             continue
 
-                        # Yield each complete sentence as it forms
                         while True:
                             m = _SENTENCE_END.search(buffer)
                             if not m:
@@ -480,12 +515,11 @@ async def _stream_gemini_sentences(api_key: str, messages: list[dict]):
                             if sentence:
                                 yield sentence
 
-                # Yield any trailing text that didn't end with punctuation
                 remainder = buffer.strip()
                 if remainder and got_any:
                     yield remainder
                 if got_any:
-                    return  # success — stop trying other models
+                    return
 
             except Exception as e:
                 all_quota = False
@@ -493,8 +527,7 @@ async def _stream_gemini_sentences(api_key: str, messages: list[dict]):
                 continue
 
     if all_quota:
-        _gemini_text_exhausted_until = time.time() + GEMINI_COOLDOWN_SECS
-        print(f"[KOGNIT] All Gemini stream models quota-exhausted — circuit breaker open for {GEMINI_COOLDOWN_SECS}s")
+        trip_text_breaker()
 
 
 # Languages where a missing semicolon is a hard syntax error (not JS/TS — ASI applies).
@@ -746,8 +779,72 @@ def _heuristic_socratic_fallback(
         if "main" not in clean_code and len(clean_code.strip()) > 30 and lang_lower in ("c", "c++", "cpp", "java"):
             return f"Remember that a {language} program requires a main function or method as its entry point.", fallback_emotion
 
+    # ── Generic final-fallback: always run static checks first ──────────
+    # Run the universal bracket checks a second time here in case we fell
+    # through from a language branch that didn't cover them (e.g. unknown lang).
+    lines_list = clean_code.split('\n')
+    open_p = sum(l.count("(") for l in lines_list)
+    close_p = sum(l.count(")") for l in lines_list)
+    if open_p != close_p:
+        diff = abs(open_p - close_p)
+        bracket = "opening '('" if open_p > close_p else "closing ')'"
+        return (
+            f"There appears to be a parenthesis mismatch in your {language} code — "
+            f"{diff} extra {bracket} {'parenthesis' if diff == 1 else 'parentheses'}.",
+            fallback_emotion,
+        )
+
+    open_b = sum(l.count("{") for l in lines_list)
+    close_b = sum(l.count("}") for l in lines_list)
+    if open_b != close_b and lang_lower not in ("python", "py"):
+        diff = abs(open_b - close_b)
+        bracket = "opening '{'" if open_b > close_b else "closing '}'"
+        return (
+            f"There's a curly brace mismatch in your {language} code — "
+            f"{diff} extra {bracket} {'brace' if diff == 1 else 'braces'}.",
+            fallback_emotion,
+        )
+
+    # If a question was asked and static checks found nothing wrong,
+    # give a varied, context-specific answer rather than a single canned sentence.
     if user_question:
-        return f"Your {language} code looks structured. Let me know if you have a specific question about your logic!", "thinking"
+        has_loop = "for " in clean_code or "while " in clean_code
+        has_func = ("def " in clean_code) or ("function " in clean_code) or ("void " in clean_code) or ("->" in clean_code)
+        has_class = "class " in clean_code
+        line_count = len([l for l in lines_list if l.strip()])
+
+        # Rotate through context-aware responses based on code content
+        # Use hash of (question + code length) so the same pair doesn't always
+        # produce the same answer, but repeated calls with changed code vary too.
+        import hashlib
+        _seed = int(hashlib.md5((user_question + str(line_count)).encode()).hexdigest(), 16)
+        _idx = _seed % 5
+
+        if "okay" in question_lower or "fine" in question_lower or "correct" in question_lower or "right" in question_lower:
+            options = [
+                f"The static checks on your {language} code don't flag any structural issues — brackets and braces look balanced.",
+                f"No bracket mismatches or obvious structural errors found in your {language} code.",
+                f"Your {language} code structure passes the checks I can run without the AI — it looks balanced.",
+                f"I don't see any unmatched brackets or braces in your {language} code right now.",
+                f"The structural analysis looks clean — no parenthesis or brace issues detected in your {language} code.",
+            ]
+            return options[_idx], "encouraging"
+
+        if has_loop and "loop" in question_lower:
+            return f"Yes, your {language} code has {'a for loop' if 'for ' in clean_code else 'a while loop'}.", "thinking"
+
+        if has_func and ("function" in question_lower or "method" in question_lower or "def" in question_lower):
+            return f"Yes, I can see a function or method defined in your {language} code.", "thinking"
+
+        # Generic but varied — keyed on code structure so responses differ per session
+        options = [
+            f"The structural checks on your {language} code look fine. What specific part are you unsure about?",
+            f"No obvious structural issues in your {language} code. Can you point me to the line you're questioning?",
+            f"Your {language} code has {line_count} lines and the brackets look balanced. What part feels off to you?",
+            f"I don't see a clear syntax issue. Try running it and share any error message you get.",
+            f"The static analysis is clean. If something still feels wrong, describe what behavior you're seeing.",
+        ]
+        return options[_idx], "thinking"
 
     if last_error:
         return f"Nice work! Your {language} code looks much better now.", "celebratory"
@@ -757,26 +854,29 @@ def _heuristic_socratic_fallback(
 
 async def _call_llm(messages: list[dict]) -> str | None:
     """Call the best available LLM with the given messages. Returns None if unavailable."""
-    global _gemini_text_exhausted_until
-
     gemini_key = os.getenv("GEMINI_API_KEY")
     if gemini_key:
-        if time.time() < _gemini_text_exhausted_until:
-            remaining = int(_gemini_text_exhausted_until - time.time())
-            print(f"[KOGNIT] Gemini text circuit-breaker open — skipping for {remaining}s")
+        if text_breaker_open():
+            pass  # breaker open — skip Gemini, fall through
         else:
             result = await _call_gemini(gemini_key, messages)
             if result:
                 return result
-    
+
+    groq_key = os.getenv("GROQ_API_KEY")
+    if groq_key:
+        result = await _call_groq(groq_key, messages)
+        if result:
+            return result
+
     openai_key = os.getenv("OPENAI_API_KEY")
     if openai_key:
         return await _call_openai(openai_key, messages)
-    
+
     anthropic_key = os.getenv("ANTHROPIC_API_KEY")
     if anthropic_key:
         return await _call_anthropic(anthropic_key, messages)
-    
+
     print("[KOGNIT] No LLM available")
     return None
 
@@ -784,14 +884,10 @@ async def _call_llm(messages: list[dict]) -> str | None:
 async def _call_gemini(api_key: str, messages: list[dict]) -> str | None:
     """
     Call Gemini via direct httpx REST streaming.
-    Streams the response and reassembles full text from SSE chunks.
-    Trips the circuit breaker if every model returns 429.
+    Uses GEMINI_MODELS from gemini_config — never hardcoded model names.
+    Trips the shared circuit breaker if every model returns 429.
     """
     import httpx
-
-    global _gemini_text_exhausted_until
-
-    _ssl_verify = os.getenv("KOGNIT_SSL_VERIFY", "0") not in ("0", "false", "no")
 
     system_instruction = ""
     contents = []
@@ -810,12 +906,10 @@ async def _call_gemini(api_key: str, messages: list[dict]) -> str | None:
         request_body["systemInstruction"] = {"parts": [{"text": system_instruction}]}
 
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"]
-    all_quota = True  # track whether every failure was a quota error
+    all_quota = True
 
-    async with httpx.AsyncClient(verify=_ssl_verify, timeout=8) as client:
-        for model_name in models_to_try:
-            # Use streamGenerateContent so we can start reading tokens immediately
+    async with httpx.AsyncClient(verify=_SSL_VERIFY, timeout=8) as client:
+        for model_name in GEMINI_MODELS:
             url = (
                 f"https://generativelanguage.googleapis.com/v1beta/models"
                 f"/{model_name}:streamGenerateContent?alt=sse"
@@ -831,12 +925,12 @@ async def _call_gemini(api_key: str, messages: list[dict]) -> str | None:
                         try:
                             err_msg = __import__("json").loads(err_body).get("error", {}).get("message", "")[:100]
                         except Exception:
-                            err_msg = err_body[:100]
+                            err_msg = str(err_body)[:100]
                         print(f"[KOGNIT] Gemini ({model_name}) error {resp.status_code}: {err_msg}")
                         all_quota = False
                         continue
 
-                    all_quota = False  # at least one model responded — not a quota issue
+                    all_quota = False
                     async for line in resp.aiter_lines():
                         if not line.startswith("data:"):
                             continue
@@ -865,12 +959,55 @@ async def _call_gemini(api_key: str, messages: list[dict]) -> str | None:
                 print(f"[KOGNIT] Gemini ({model_name}) exception: {str(e)[:100]}")
                 continue
 
-    # If every single attempt was a 429, trip the circuit breaker
     if all_quota:
-        _gemini_text_exhausted_until = time.time() + GEMINI_COOLDOWN_SECS
-        print(f"[KOGNIT] All Gemini text models quota-exhausted — circuit breaker open for {GEMINI_COOLDOWN_SECS}s")
+        trip_text_breaker()
     else:
         print("[KOGNIT] All Gemini text models exhausted. Using Socratic fallback.")
+    return None
+
+
+async def _call_groq(api_key: str, messages: list[dict]) -> str | None:
+    """
+    Call Groq chat completions (OpenAI-compatible API).
+    Uses llama-3.3-70b-versatile — free tier, fast, excellent for conversation.
+    Falls back to llama-3.1-8b-instant if 70b is rate-limited.
+    """
+    import httpx
+
+    groq_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(verify=_SSL_VERIFY, timeout=15) as client:
+        for model in groq_models:
+            try:
+                response = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers=headers,
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        "max_tokens": 400,
+                        "temperature": 0.7,
+                    },
+                )
+                if response.status_code == 200:
+                    text = response.json()["choices"][0]["message"]["content"] or ""
+                    print(f"[KOGNIT] Groq ({model}) returned {len(text)} chars")
+                    return text.strip() or None
+                elif response.status_code == 429:
+                    print(f"[KOGNIT] Groq ({model}): rate limited, trying next...")
+                    continue
+                else:
+                    print(f"[KOGNIT] Groq ({model}) error {response.status_code}: {response.text[:100]}")
+                    return None
+            except Exception as e:
+                print(f"[KOGNIT] Groq ({model}) exception: {str(e)[:100]}")
+                continue
+
+    print("[KOGNIT] All Groq models exhausted.")
     return None
 
 
