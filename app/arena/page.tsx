@@ -53,20 +53,20 @@ const ADAPTIVE_CHALLENGES: Record<Difficulty, Question> = {
   easy: {
     id: 1,
     difficulty: "easy",
-    category: "Array & Algorithm Optimization",
-    title: "Array Merge & Deduplication Engine",
+    category: "Array Boundary & Loop Range (Kognit Practice Match)",
+    title: "Array Boundary & Off-by-One Guard",
     prompt:
-      "Implement a function `mergeAndDeduplicate(arr1, arr2)` that takes two sorted arrays of numbers, merges them into a single sorted array, and removes any duplicate values.\n\nExample:\nInput: arr1 = [1, 3, 5], arr2 = [2, 3, 6]\nOutput: [1, 2, 3, 5, 6]\n\nRequirements:\n1. Solve this with O(N + M) time complexity.\n2. Do not rely on external sorting libraries.",
+      "In your previous Socratic coaching session, you debugged `sumRange(arr, n)` where `for (let i = 0; i <= n; i++)` caused an out-of-bounds array access.\n\nNow, write a robust function `sumRangeSafe(arr, n)` that calculates the sum of the first `n` elements of `arr`, returns `0` if `arr` is empty or invalid, and guarantees no out-of-bounds index access occurs.\n\nExample:\nInput: arr = [10, 20, 30, 40], n = 3\nOutput: 60\n\nRequirements:\n1. Ensure strict loop boundary `i < n` and `i < arr.length`.\n2. Handle empty array and null inputs gracefully.",
     defaultTimeLimit: 600,
     hints: [
-      "Use a two-pointer technique to iterate through both sorted arrays simultaneously.",
-      "Compare elements at current pointers and append the smaller element while avoiding duplicates.",
+      "Ensure loop boundary uses strict inequality `i < n` and `i < arr.length`.",
+      "Check base cases where arr is empty or null before starting the loop.",
     ],
   },
   medium: {
     id: 2,
     difficulty: "medium",
-    category: "State Management & Caching",
+    category: "State Management & Caching (Kognit Practice Match)",
     title: "LRU (Least Recently Used) Cache System",
     prompt:
       "Implement an LRU (Least Recently Used) cache data structure with `get(key)` and `put(key, value)` operations.\n\nRequirements:\n1. Both operations must run in O(1) average time complexity.\n2. When the cache reaches its capacity limit, invalidate the least recently accessed item before inserting a new key.",
@@ -79,7 +79,7 @@ const ADAPTIVE_CHALLENGES: Record<Difficulty, Question> = {
   hard: {
     id: 3,
     difficulty: "hard",
-    category: "Recursion & Data Structures",
+    category: "Recursion & Data Structures (Kognit Practice Match)",
     title: "Abstract Syntax Tree (AST) Evaluator",
     prompt:
       "Write an evaluator function `evaluateAST(node)` that parses and evaluates a binary arithmetic expression tree.\n\nTree Node Structure:\n{\n  type: 'operator' | 'literal',\n  value: '+' | '-' | '*' | '/' | number,\n  left?: ASTNode,\n  right?: ASTNode\n}\n\nExample:\nRoot with operator '+' and left=literal(10), right=literal(5) -> Output: 15",
@@ -98,9 +98,11 @@ const ADAPTIVE_CHALLENGES: Record<Difficulty, Question> = {
 function CountdownTimer({
   totalSeconds,
   elapsed,
+  isTimerStarted = true,
 }: {
   totalSeconds: number
   elapsed: number
+  isTimerStarted?: boolean
 }) {
   const remaining = Math.max(0, totalSeconds - elapsed)
   const fraction = totalSeconds > 0 ? remaining / totalSeconds : 0
@@ -109,8 +111,8 @@ function CountdownTimer({
 
   const hue = fraction > 0.5 ? 165 : fraction > 0.2 ? 90 : 350
   const chroma = fraction > 0.2 ? 0.09 : 0.12
-  const timerColor = `oklch(0.78 ${chroma} ${hue})`
-  const glowColor = `oklch(0.82 ${chroma + 0.02} ${hue} / 35%)`
+  const timerColor = isTimerStarted ? `oklch(0.78 ${chroma} ${hue})` : `oklch(0.6 0.02 200)`
+  const glowColor = isTimerStarted ? `oklch(0.82 ${chroma + 0.02} ${hue} / 35%)` : `transparent`
 
   const radius = 52
   const circumference = 2 * Math.PI * radius
@@ -148,12 +150,12 @@ function CountdownTimer({
           className="font-mono text-2xl tabular-nums font-bold"
           style={{ color: timerColor }}
           animate={
-            fraction < 0.15 && remaining > 0
+            fraction < 0.15 && remaining > 0 && isTimerStarted
               ? { scale: [1, 1.05, 1], opacity: [1, 0.7, 1] }
               : {}
           }
           transition={
-            fraction < 0.15 && remaining > 0
+            fraction < 0.15 && remaining > 0 && isTimerStarted
               ? { duration: 0.8, repeat: Infinity }
               : {}
           }
@@ -161,7 +163,7 @@ function CountdownTimer({
           {String(minutes).padStart(2, "0")}:{String(seconds).padStart(2, "0")}
         </motion.span>
         <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground/50 mt-0.5">
-          {remaining === 0 ? "TIME EXPIRED" : "REMAINING"}
+          {remaining === 0 ? "TIME EXPIRED" : !isTimerStarted ? "START CODING" : "REMAINING"}
         </span>
       </div>
     </div>
@@ -231,8 +233,8 @@ export default function ArenaPage() {
   // Active question is derived from selected difficulty
   const question = useMemo(() => ADAPTIVE_CHALLENGES[selectedDifficulty], [selectedDifficulty])
 
-  // Language input state
-  const [typedLanguage, setTypedLanguage] = useState<string>("javascript")
+  // Language input state — initially empty so user selects or fills in their own language
+  const [typedLanguage, setTypedLanguage] = useState<string>("")
 
   // Timer configuration
   const [customTimeMinutes, setCustomTimeMinutes] = useState<number>(Math.floor(question.defaultTimeLimit / 60))
@@ -251,7 +253,7 @@ export default function ArenaPage() {
   const [isRunning, setIsRunning] = useState(false)
   const [terminalLogs, setTerminalLogs] = useState<OutputEntry[]>([
     { type: 'info', text: '[TERMINAL] Mock exam environment ready' },
-    { type: 'info', text: '[TERMINAL] Solution workspace is blank. Write code from scratch and click RUN CODE.' }
+    { type: 'info', text: '[TERMINAL] Solution workspace is blank. Choose your language, start writing code, and click RUN CODE.' }
   ])
   const terminalScrollRef = useRef<HTMLDivElement>(null)
 
@@ -316,9 +318,13 @@ export default function ArenaPage() {
     setTerminalLogs(prev => [...prev, { type, text }])
   }, [])
 
+  // Timer starts ONLY after user begins writing code into the solution workspace
+  const isTimerStarted = answer.trim().length > 0
+  const isTimerActive = isTimerStarted && !submitted
+
   // Timer interval
   useEffect(() => {
-    if (submitted) return
+    if (!isTimerActive) return
     const id = setInterval(() => {
       setElapsed((p) => {
         if (p >= totalSeconds) return p
@@ -326,7 +332,7 @@ export default function ArenaPage() {
       })
     }, 1000)
     return () => clearInterval(id)
-  }, [submitted, totalSeconds])
+  }, [isTimerActive, totalSeconds])
 
   // Decay typing speed
   useEffect(() => {
@@ -616,8 +622,11 @@ export default function ArenaPage() {
                 {/* Editable Language Header Bar */}
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground/60 font-semibold">
-                      Language:
+                    <span className="font-mono text-[10px] uppercase tracking-widest text-emerald-400/90 font-semibold flex items-center gap-1">
+                      <span>Language:</span>
+                      {typedLanguage.trim() === "" && (
+                        <span className="text-[9px] text-amber-400 font-normal animate-pulse">(Choose or type)</span>
+                      )}
                     </span>
                     
                     <div className="relative flex items-center">
@@ -626,8 +635,8 @@ export default function ArenaPage() {
                         list="language-suggestions"
                         value={typedLanguage}
                         onChange={(e) => setTypedLanguage(e.target.value)}
-                        placeholder="e.g. python, cpp, javascript"
-                        className="w-36 rounded-lg bg-black/60 px-3 py-1 font-mono text-xs text-emerald-300 border border-emerald-500/30 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40"
+                        placeholder="Choose language (e.g. Python, C++, JS)..."
+                        className="w-56 rounded-lg bg-black/70 px-3 py-1 font-mono text-xs text-emerald-300 border border-emerald-500/40 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/40 placeholder:text-muted-foreground/40"
                       />
                       <datalist id="language-suggestions">
                         {POPULAR_LANGUAGES.map((lang) => (
@@ -639,16 +648,16 @@ export default function ArenaPage() {
 
                   {/* Popular Quick-Select Badges */}
                   <div className="flex items-center gap-1.5">
-                    <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground/30 mr-1 hidden sm:inline">
-                      Quick:
+                    <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground/40 mr-1 hidden sm:inline">
+                      Select:
                     </span>
-                    {POPULAR_LANGUAGES.slice(0, 5).map((lang) => (
+                    {POPULAR_LANGUAGES.slice(0, 6).map((lang) => (
                       <button
                         key={lang}
                         onClick={() => setTypedLanguage(lang)}
-                        className={`rounded px-1.5 py-0.5 font-mono text-[9px] uppercase transition-colors border ${
+                        className={`rounded px-2 py-0.5 font-mono text-[9px] uppercase transition-colors border ${
                           typedLanguage.toLowerCase() === lang
-                            ? "border-emerald-400/60 bg-emerald-500/20 text-emerald-300 font-bold"
+                            ? "border-emerald-400/60 bg-emerald-500/20 text-emerald-300 font-bold shadow-[0_0_8px_rgba(52,211,153,0.3)]"
                             : "border-white/5 bg-black/40 text-muted-foreground/50 hover:text-white hover:border-white/20"
                         }`}
                       >
@@ -867,6 +876,7 @@ export default function ArenaPage() {
                   <CountdownTimer
                     totalSeconds={totalSeconds}
                     elapsed={elapsed}
+                    isTimerStarted={isTimerStarted}
                   />
                 </div>
               </div>
@@ -883,9 +893,11 @@ export default function ArenaPage() {
                 >
                   {submitted
                     ? "completed ✓"
-                    : isLowTime
-                      ? "time critical ⚠"
-                      : "in progress..."}
+                    : !isTimerStarted
+                      ? "ready — timer starts when you code"
+                      : isLowTime
+                        ? "time critical ⚠"
+                        : "timer in progress..."}
                 </motion.p>
 
                 <button

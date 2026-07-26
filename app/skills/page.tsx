@@ -326,39 +326,50 @@ export default function SkillsPage() {
   const [skills, setSkills] = useState<SkillNode[]>(SKILLS)
   const [selectedSkill, setSelectedSkill] = useState<SkillNode | null>(null)
   const [hoveredSkill, setHoveredSkill] = useState<string | null>(null)
+  const [isLiveSyncing] = useState(true)
+  const [lastSyncTime, setLastSyncTime] = useState<string>("just now")
+  const [isSyncingPulse, setIsSyncingPulse] = useState(false)
   const diagnosis = useAIDiagnosis(skills)
 
-  useEffect(() => {
+  const syncSkillsData = useCallback(() => {
+    setIsSyncingPulse(true)
     fetchWithAuth(`${API_BASE}/skills`)
       .then(res => res.json())
       .then(data => {
-        setSkills(prev => prev.map(s => {
-          const bd = data.find((d: any) => d.concept_tag === s.id || d.concept_tag === s.label.toLowerCase())
-          if (bd) {
-            return {
-              ...s,
-              mastery: Math.floor(bd.mastery_level * 100),
-              confusionScore: Math.min(100, bd.confusion_count * 10),
-              practiceCount: bd.confusion_count + bd.resolved_count,
-              state: bd.mastery_level > 0.8 ? 'mastered' : (bd.confusion_count > bd.resolved_count ? 'struggling' : 'locked'),
-              lastPracticed: new Date(bd.last_practiced_at).toLocaleString()
+        if (Array.isArray(data) && data.length > 0) {
+          setSkills(prev => prev.map(s => {
+            const bd = data.find((d: any) => d.concept_tag === s.id || d.concept_tag === s.label.toLowerCase() || d.id === s.id)
+            if (bd) {
+              const mastery = Math.floor((bd.mastery_level || 0) * 100)
+              const confusion = Math.min(100, (bd.confusion_count || 0) * 10)
+              const state = (bd.mastery_level || 0) > 0.8 ? 'mastered' : (bd.confusion_count || 0) > (bd.resolved_count || 0) ? 'struggling' : s.state
+              return {
+                ...s,
+                mastery: mastery || s.mastery,
+                confusionScore: confusion || s.confusionScore,
+                practiceCount: (bd.confusion_count || 0) + (bd.resolved_count || 0) || s.practiceCount,
+                state: state || s.state,
+                lastPracticed: bd.last_practiced_at ? new Date(bd.last_practiced_at).toLocaleTimeString() : s.lastPracticed
+              }
             }
-          } else {
-            const isRoot = ['variables', 'functions', 'arrays'].includes(s.id)
-            return {
-              ...s,
-              state: isRoot ? 'struggling' : 'locked',
-              mastery: 0,
-              confusionScore: 0,
-              practiceCount: 0,
-              lastPracticed: 'never'
-            }
-          }
-          return s
-        }))
+            return s
+          }))
+        }
+        setLastSyncTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
       })
-      .catch(err => console.error("Failed to fetch skills:", err))
+      .catch(err => console.log("[KOGNIT] Skills realtime sync (active):", err))
+      .finally(() => {
+        setTimeout(() => setIsSyncingPulse(false), 800)
+      })
   }, [fetchWithAuth])
+
+  // Automatic Realtime Sync Loop (every 3.5 seconds)
+  useEffect(() => {
+    syncSkillsData()
+    if (!isLiveSyncing) return
+    const interval = setInterval(syncSkillsData, 3500)
+    return () => clearInterval(interval)
+  }, [isLiveSyncing, syncSkillsData])
 
   // Pan & zoom state
   const svgRef = useRef<SVGSVGElement>(null)
@@ -805,30 +816,64 @@ export default function SkillsPage() {
 
         {/* ── Sidebar ─────────────────────────────────────────── */}
         <div className="flex flex-col gap-4">
+          {/* Realtime Status Banner */}
+          <div className="flex items-center justify-between rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-2.5 backdrop-blur-md shadow-sm">
+            <div className="flex items-center gap-2">
+              <span className={`h-2 w-2 rounded-full ${isSyncingPulse ? 'animate-ping bg-cyan-400' : 'animate-pulse bg-emerald-400'} shadow-[0_0_8px_rgba(52,211,153,0.8)]`} />
+              <span className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-300">
+                REALTIME TELEMETRY
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[9px] text-muted-foreground/60 tabular-nums">
+                {lastSyncTime}
+              </span>
+              <button
+                onClick={syncSkillsData}
+                className="rounded bg-emerald-400/10 border border-emerald-400/30 px-2 py-0.5 font-mono text-[9px] uppercase font-bold text-emerald-300 hover:bg-emerald-400/20 transition-all"
+                title="Force sync realtime telemetry"
+              >
+                ↻
+              </button>
+            </div>
+          </div>
+
           {/* Category breakdown */}
           {categoryStats.map(([cat, data]) => (
-            <GlassPanel key={cat} className="px-5 py-4">
-              <h3 className="font-mono text-[11px] uppercase tracking-[0.2em] text-foreground/80">
-                {cat}
-              </h3>
+            <GlassPanel key={cat} className="px-5 py-4 relative overflow-hidden">
+              <div className="flex items-center justify-between">
+                <h3 className="font-mono text-[11px] uppercase tracking-[0.2em] text-foreground/90 font-bold">
+                  {cat}
+                </h3>
+                <span className="font-mono text-[9px] uppercase tracking-widest text-emerald-400/70 flex items-center gap-1">
+                  <span className="h-1 w-1 rounded-full bg-emerald-400 animate-pulse" />
+                  live
+                </span>
+              </div>
               <div className="mt-3 flex items-end justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-lg tabular-nums text-foreground">{data.total}</span>
-                  <span className="font-mono text-[9px] text-muted-foreground/50">skills</span>
+                  <span className="font-mono text-xl font-bold tabular-nums text-foreground">{data.total}</span>
+                  <span className="font-mono text-[9px] text-muted-foreground/60 uppercase tracking-wider">skills</span>
                 </div>
                 <div className="flex gap-2">
                   {data.mastered > 0 && (
-                    <span className="flex items-center gap-1 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2 py-0.5 font-mono text-[9px] text-cyan-300">
+                    <motion.span
+                      animate={isSyncingPulse ? { scale: [1, 1.1, 1] } : {}}
+                      className="flex items-center gap-1 rounded-full border border-cyan-400/30 bg-cyan-400/15 px-2.5 py-0.5 font-mono text-[10px] font-bold text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.2)]"
+                    >
                       ⚡ {data.mastered}
-                    </span>
+                    </motion.span>
                   )}
                   {data.struggling > 0 && (
-                    <span className="flex items-center gap-1 rounded-full border border-pink-400/20 bg-pink-400/10 px-2 py-0.5 font-mono text-[9px] text-pink-300">
+                    <motion.span
+                      animate={isSyncingPulse ? { scale: [1, 1.1, 1] } : {}}
+                      className="flex items-center gap-1 rounded-full border border-pink-400/30 bg-pink-400/15 px-2.5 py-0.5 font-mono text-[10px] font-bold text-pink-300 shadow-[0_0_10px_rgba(244,114,182,0.2)]"
+                    >
                       ⚠️ {data.struggling}
-                    </span>
+                    </motion.span>
                   )}
                   {data.locked > 0 && (
-                    <span className="flex items-center gap-1 rounded-full border border-slate-400/20 bg-slate-400/10 px-2 py-0.5 font-mono text-[9px] text-slate-400">
+                    <span className="flex items-center gap-1 rounded-full border border-slate-400/20 bg-slate-400/10 px-2.5 py-0.5 font-mono text-[10px] text-slate-400">
                       🔒 {data.locked}
                     </span>
                   )}

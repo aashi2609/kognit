@@ -5,7 +5,7 @@ export function SiteFooter() {
       <div className="relative mx-auto flex max-w-6xl flex-col items-start justify-between gap-2 px-5 py-3 sm:flex-row sm:items-center sm:px-8">
         <div className="flex items-center gap-3">
           <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_var(--emerald-glow)]" />
-          <span className="font-mono text-sm tracking-[0.3em] text-foreground">
+          <span className="font-kognit text-sm tracking-[0.3em] text-foreground">
             KOGNIT
           </span>
         </div>

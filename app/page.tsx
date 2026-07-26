@@ -16,15 +16,35 @@ export default function Page() {
   // becomes true once the resolution simulation succeeds; a scroll gesture
   // after this point triggers the one-time unlock.
   const armedRef = useRef(false)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  const startDemoAudio = useCallback(() => {
+    if (typeof window === "undefined") return
+    if (!audioRef.current) {
+      audioRef.current = new Audio("/audio/prometheus_demo_intro.mp3")
+    }
+    audioRef.current.currentTime = 0
+    audioRef.current
+      .play()
+      .catch((err) => console.warn("[KOGNIT] Audio playback failed:", err))
+  }, [])
+
+  const stopDemoAudio = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.currentTime = 0
+    }
+  }, [])
 
   const unlocked = act === "unlocked"
   const inArena = act !== "intro"
 
   const handleUnlock = useCallback(() => {
+    stopDemoAudio()
     setAct((a) => (a === "unlocked" ? a : "unlocked"))
     // the narrative stage slides up and unmounts; land the Arena at the top
     requestAnimationFrame(() => window.scrollTo(0, 0))
-  }, [])
+  }, [stopDemoAudio])
 
   // Global scroll lock for the entire narrative until unlocked. Once the
   // simulation is resolved (armedRef), a scroll gesture triggers the unlock.
@@ -97,7 +117,7 @@ export default function Page() {
               <AnimatePresence mode="wait">
                 {act === "intro" && (
                   <ActShell key="intro" full>
-                    <ActIntro onComplete={() => setAct("clone")} />
+                    <ActIntro onComplete={() => setAct("clone")} onLightTurnedOn={startDemoAudio} />
                   </ActShell>
                 )}
                 {act === "clone" && (

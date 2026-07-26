@@ -19,7 +19,13 @@ type Phase = "dark" | "reveal" | "walk" | "juggle" | "lock" | "confirm"
  * UPGRADED: Letters now launch from hand coordinates on parabolic arcs.
  * Arms follow independent overlapping elliptical cascade paths.
  */
-export function ActIntro({ onComplete }: { onComplete: () => void }) {
+export function ActIntro({
+  onComplete,
+  onLightTurnedOn,
+}: {
+  onComplete: () => void
+  onLightTurnedOn?: () => void
+}) {
   const [phase, setPhase] = useState<Phase>("dark")
   const on = phase !== "dark"
   const timers = useRef<number[]>([])
@@ -29,6 +35,7 @@ export function ActIntro({ onComplete }: { onComplete: () => void }) {
     if (startedRef.current) return
     startedRef.current = true
     setPhase("reveal")
+    onLightTurnedOn?.()
     timers.current = [
       window.setTimeout(() => setPhase("walk"), 200),
       window.setTimeout(() => setPhase("juggle"), 1500),
@@ -36,7 +43,7 @@ export function ActIntro({ onComplete }: { onComplete: () => void }) {
       window.setTimeout(() => setPhase("confirm"), 5600),
       window.setTimeout(onComplete, 6800),
     ]
-  }, [onComplete])
+  }, [onComplete, onLightTurnedOn])
 
   useEffect(() => () => timers.current.forEach(clearTimeout), [])
 
@@ -135,7 +142,7 @@ export function ActIntro({ onComplete }: { onComplete: () => void }) {
         {on && (
           <motion.div
             key="stage"
-            className="relative z-20 flex flex-col items-center"
+            className="relative z-20 flex flex-col items-center pt-24 sm:pt-28 md:pt-32"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.5, delay: 0.15 }}
@@ -149,7 +156,7 @@ export function ActIntro({ onComplete }: { onComplete: () => void }) {
                 return (
                   <motion.span
                     key={letter + i}
-                    className="relative font-mono text-6xl font-bold sm:text-7xl md:text-8xl"
+                    className="relative font-kognit text-6xl font-bold sm:text-7xl md:text-8xl"
                     initial={{
                       opacity: 0,
                       x: arc.startX,
@@ -183,12 +190,11 @@ export function ActIntro({ onComplete }: { onComplete: () => void }) {
                           }
                     }
                     style={{
-                      color: locked
-                        ? "oklch(0.8 0.24 345)"
-                        : "oklch(0.86 0.2 165)",
+                      color: "#060606",
+                      WebkitTextStroke: locked ? "0.5px #facc15" : "0.5px #eab308",
                       textShadow: locked
-                        ? "-0.7px -0.7px 0 rgba(0,0,0,0.85), 0.7px -0.7px 0 rgba(0,0,0,0.85), -0.7px 0.7px 0 rgba(0,0,0,0.85), 0.7px 0.7px 0 rgba(0,0,0,0.85), 0 0 12px oklch(0.85 0.24 345 / 95%), 0 0 34px oklch(0.8 0.24 345 / 75%)"
-                        : "-0.7px -0.7px 0 rgba(0,0,0,0.85), 0.7px -0.7px 0 rgba(0,0,0,0.85), -0.7px 0.7px 0 rgba(0,0,0,0.85), 0.7px 0.7px 0 rgba(0,0,0,0.85), 0 0 12px oklch(0.9 0.2 165 / 95%), 0 0 30px oklch(0.86 0.2 165 / 70%)",
+                        ? "0 0 12px rgba(250, 204, 21, 0.95), 0 0 28px rgba(234, 179, 8, 0.75), 0 0 50px rgba(202, 138, 4, 0.5)"
+                        : "0 0 8px rgba(234, 179, 8, 0.85), 0 0 22px rgba(202, 138, 4, 0.6)",
                     }}
                   >
                     {letter}
@@ -199,8 +205,9 @@ export function ActIntro({ onComplete }: { onComplete: () => void }) {
                         animate={{ opacity: [0, 1, 0] }}
                         transition={{ duration: 0.5, delay: i * 0.09 }}
                         style={{
-                          color: "oklch(0.9 0.24 345)",
-                          textShadow: "-0.7px -0.7px 0 rgba(0,0,0,0.85), 0.7px -0.7px 0 rgba(0,0,0,0.85), -0.7px 0.7px 0 rgba(0,0,0,0.85), 0.7px 0.7px 0 rgba(0,0,0,0.85), 0 0 40px oklch(0.85 0.24 345)",
+                          color: "#facc15",
+                          WebkitTextStroke: "0.5px #ffffff",
+                          textShadow: "0 0 20px #facc15, 0 0 45px #eab308, 0 0 70px #ca8a04",
                         }}
                         aria-hidden="true"
                       >
