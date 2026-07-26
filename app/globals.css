@@ -10,6 +10,10 @@
   font-display: swap;
 }
 
+.font-kognit {
+  font-family: 'SdDystopian', var(--font-geist-mono), monospace;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

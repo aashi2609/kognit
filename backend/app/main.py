@@ -235,19 +235,150 @@ async def delete_file(file_id: str, db: AsyncSession = Depends(get_db), user_id:
 
 # ── Skills & Arena ────────────────────────────────────────────────────
 
-@app.get("/skills", tags=["skills"])
-async def get_skills(user_id: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+DEFAULT_SKILL_SEEDS = [
+    {"tag": "variables", "mastery": 0.0, "conf": 0, "res": 0, "xp": 0},
+    {"tag": "functions", "mastery": 0.0, "conf": 0, "res": 0, "xp": 0},
+    {"tag": "arrays", "mastery": 0.0, "conf": 0, "res": 0, "xp": 0},
+    {"tag": "linked-lists", "mastery": 0.0, "conf": 0, "res": 0, "xp": 0},
+    {"tag": "hash-maps", "mastery": 0.0, "conf": 0, "res": 0, "xp": 0},
+    {"tag": "recursion", "mastery": 0.0, "conf": 0, "res": 0, "xp": 0},
+    {"tag": "sorting", "mastery": 0.0, "conf": 0, "res": 0, "xp": 0},
+    {"tag": "trees", "mastery": 0.0, "conf": 0, "res": 0, "xp": 0},
+    {"tag": "tree-traversal", "mastery": 0.0, "conf": 0, "res": 0, "xp": 0},
+    {"tag": "graphs", "mastery": 0.0, "conf": 0, "res": 0, "xp": 0},
+    {"tag": "dp", "mastery": 0.0, "conf": 0, "res": 0, "xp": 0},
+    {"tag": "searching", "mastery": 0.0, "conf": 0, "res": 0, "xp": 0},
+    {"tag": "big-o", "mastery": 0.0, "conf": 0, "res": 0, "xp": 0},
+    {"tag": "greedy", "mastery": 0.0, "conf": 0, "res": 0, "xp": 0},
+]
+
+
+async def ensure_user_skills(user_id: str, db: AsyncSession):
     result = await db.execute(
-        select(SkillMastery)
-        .where(SkillMastery.user_id == user_id)
-        .order_by(SkillMastery.last_practiced_at.desc())
+        select(SkillMastery).where(SkillMastery.user_id == user_id)
     )
-    skills = result.scalars().all()
+    existing = result.scalars().all()
+    if not existing:
+        now = datetime.now(timezone.utc)
+        for seed in DEFAULT_SKILL_SEEDS:
+            m = SkillMastery(
+                user_id=user_id,
+                concept_tag=seed["tag"],
+                mastery_level=seed["mastery"],
+                confusion_count=seed["conf"],
+                resolved_count=seed["res"],
+                xp=seed["xp"],
+                last_practiced_at=now,
+            )
+            db.add(m)
+        await db.commit()
+        result = await db.execute(
+            select(SkillMastery).where(SkillMastery.user_id == user_id)
+        )
+        existing = result.scalars().all()
+    return existing
+
+
+class RecordSkillRequest(BaseModel):
+    concept_tag: str
+    action: str = "resolved"  # "resolved", "confusion", "practiced"
+    mastery_delta: Optional[float] = 0.08
+    xp_delta: Optional[int] = 50
+    confusion_delta: Optional[int] = 0
+    resolved_delta: Optional[int] = 1
+
+
+@app.post("/skills/record", tags=["skills"])
+async def record_skill_progress(
+    req: RecordSkillRequest,
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Persists real-time skill progress telemetry to the database when code is run or a solution is submitted.
+    """
+    await ensure_user_skills(user_id, db)
+    result = await db.execute(
+        select(SkillMastery).where(
+            SkillMastery.user_id == user_id,
+            SkillMastery.concept_tag == req.concept_tag,
+        )
+    )
+    m = result.scalar_one_or_none()
+    now = datetime.now(timezone.utc)
+
+    if m:
+        if req.action == "resolved":
+            m.resolved_count += req.resolved_delta or 1
+            m.mastery_level = min(
+                1.0, round(m.mastery_level + (req.mastery_delta or 0.08), 2)
+            )
+            m.xp += req.xp_delta or 50
+        elif req.action == "confusion":
+            m.confusion_count += req.confusion_delta or 1
+            m.mastery_level = max(0.0, round(m.mastery_level - 0.05, 2))
+        else:
+            m.resolved_count += 1
+            m.mastery_level = min(1.0, round(m.mastery_level + 0.05, 2))
+            m.xp += 25
+        m.last_practiced_at = now
+    else:
+        m = SkillMastery(
+            user_id=user_id,
+            concept_tag=req.concept_tag,
+            mastery_level=min(1.0, max(0.1, req.mastery_delta or 0.15)),
+            xp=req.xp_delta or 50,
+            confusion_count=req.confusion_delta
+            if req.action == "confusion"
+            else 0,
+            resolved_count=req.resolved_delta if req.action == "resolved" else 1,
+            last_practiced_at=now,
+        )
+        db.add(m)
+
+    await db.commit()
+    await db.refresh(m)
+    return {
+        "success": True,
+        "concept_tag": m.concept_tag,
+        "mastery_level": m.mastery_level,
+        "confusion_count": m.confusion_count,
+        "resolved_count": m.resolved_count,
+        "xp": m.xp,
+        "last_practiced_at": m.last_practiced_at.isoformat(),
+    }
+
+
+@app.post("/skills/reset", tags=["skills"])
+async def reset_skills_telemetry(
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Resets user skill records in database to pure 0 state so all progress is built 100% from real coding sessions.
+    """
+    await db.execute(delete(SkillMastery).where(SkillMastery.user_id == user_id))
+    await db.commit()
+    skills = await ensure_user_skills(user_id, db)
+    return {
+        "success": True,
+        "message": "Skills telemetry reset to pure zero for real session tracking",
+        "count": len(skills),
+    }
+
+
+@app.get("/skills", tags=["skills"])
+async def get_skills(
+    user_id: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
+    skills = await ensure_user_skills(user_id, db)
     return skills
 
 
 @app.get("/skills/summary", tags=["skills"])
-async def get_skills_summary(user_id: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def get_skills_summary(
+    user_id: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """
     Returns a summary combining user files (languages used) and skill mastery.
     Used by the Skills page to show personalised data based on what the user has actually built.
@@ -261,17 +392,15 @@ async def get_skills_summary(user_id: str = Depends(get_current_user), db: Async
     files = files_result.scalars().all()
     lang_counts = Counter(f.language for f in files if f.language)
 
-    # Skill mastery records
-    mastery_result = await db.execute(
-        select(SkillMastery).where(SkillMastery.user_id == user_id)
-    )
-    mastery_records = mastery_result.scalars().all()
-    mastery_by_tag = {m.concept_tag: m for m in mastery_records}
+    # Skill mastery records (seeded if first time)
+    mastery_records = await ensure_user_skills(user_id, db)
 
     return {
         "file_count": len(files),
         "languages_used": dict(lang_counts.most_common()),
-        "primary_language": lang_counts.most_common(1)[0][0] if lang_counts else None,
+        "primary_language": lang_counts.most_common(1)[0][0]
+        if lang_counts
+        else None,
         "mastery_records": [
             {
                 "concept_tag": m.concept_tag,
@@ -279,7 +408,9 @@ async def get_skills_summary(user_id: str = Depends(get_current_user), db: Async
                 "confusion_count": m.confusion_count,
                 "resolved_count": m.resolved_count,
                 "xp": m.xp,
-                "last_practiced_at": m.last_practiced_at.isoformat() if m.last_practiced_at else None,
+                "last_practiced_at": m.last_practiced_at.isoformat()
+                if m.last_practiced_at
+                else None,
             }
             for m in mastery_records
         ],

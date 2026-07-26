@@ -11,11 +11,13 @@ export function GlassPanel({
   className = "",
   label,
   accent = "emerald",
+  onClick,
 }: {
   children: ReactNode
   className?: string
   label?: string
   accent?: "emerald" | "pink"
+  onClick?: () => void
 }) {
   const accentBorder =
     accent === "emerald"
@@ -24,6 +26,7 @@ export function GlassPanel({
 
   return (
     <div
+      onClick={onClick}
       className={`relative overflow-hidden rounded-2xl border bg-neutral-950/40 backdrop-blur-3xl transition-colors duration-300 ${accentBorder} ${className}`}
     >
       {/* Inner glow */}

@@ -251,11 +251,25 @@ export default function ArenaPage() {
   // Tutor Hook Integration
   const { aiState, aiEmotion, aiText, userTranscript, isMicActive, sendCodeUpdate, startMic, stopMic } = useKognitTutor()
 
-  // Difficulty Filter
-  const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>("medium")
+  // Difficulty Filter — DEFAULT TO EASY PROBLEM
+  const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>("easy")
 
   // Active question is derived from selected difficulty
   const question = useMemo(() => ADAPTIVE_CHALLENGES[selectedDifficulty], [selectedDifficulty])
+
+  // Automatic Socratic Topic Adaptation from Terminal activity
+  useEffect(() => {
+    const lastConcept = localStorage.getItem('kognit_last_concept')
+    if (lastConcept) {
+      if (lastConcept.includes('recursion') || lastConcept.includes('tree')) {
+        setSelectedDifficulty('hard')
+      } else if (lastConcept.includes('hash') || lastConcept.includes('list') || lastConcept.includes('pointer')) {
+        setSelectedDifficulty('medium')
+      } else if (lastConcept.includes('array') || lastConcept.includes('variable')) {
+        setSelectedDifficulty('easy')
+      }
+    }
+  }, [])
 
   // Language input state — initially empty so user selects or fills in their own language
   const [typedLanguage, setTypedLanguage] = useState<string>("")
@@ -278,7 +292,7 @@ export default function ArenaPage() {
   // Code Execution & Output Terminal State
   const [isRunning, setIsRunning] = useState(false)
   const [terminalLogs, setTerminalLogs] = useState<OutputEntry[]>([
-    { type: 'info', text: '[TERMINAL] Mock exam environment ready' },
+    { type: 'info', text: '[TERMINAL] Mock exam environment ready (Default: Easy Contextual Challenge)' },
     { type: 'info', text: '[TERMINAL] Solution workspace is blank. Choose your language, start writing code, and click RUN CODE.' }
   ])
   const terminalScrollRef = useRef<HTMLDivElement>(null)
@@ -293,7 +307,7 @@ export default function ArenaPage() {
     setShowTestCases(false)
     setAiHintRequested(false)
     setTerminalLogs([
-      { type: 'info', text: `[EXAM] Contextual Challenge Loaded: ${question.title}` },
+      { type: 'info', text: `[EXAM] Contextual Challenge Loaded (${question.difficulty.toUpperCase()}): ${question.title}` },
       { type: 'info', text: '[EXAM] Write your solution from scratch in the workspace.' }
     ])
   }, [question])
@@ -378,12 +392,38 @@ export default function ArenaPage() {
   const handleSubmit = useCallback(() => {
     setSubmitted(true)
     addTerminalLog('success', '[EXAM] Solution submitted for evaluation ✓')
-    addTerminalLog('info', '[EXAM] Awaiting AI Tutor evaluation (debounced, please wait 4s)...')
+    addTerminalLog('info', '[EXAM] Recording skill telemetry to database...')
+
+    // Determine concept tag from question category
+    let conceptTag = 'variables'
+    const cat = question.category.toLowerCase()
+    if (cat.includes('array')) conceptTag = 'arrays'
+    else if (cat.includes('cache') || cat.includes('state')) conceptTag = 'hash-maps'
+    else if (cat.includes('window') || cat.includes('pointer')) conceptTag = 'searching'
+    else if (cat.includes('recursion') || cat.includes('tree')) conceptTag = 'trees'
+
+    // Persist real skill progress telemetry to DB
+    fetchWithAuth(`${API_BASE}/skills/record`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        concept_tag: conceptTag,
+        action: "resolved",
+        mastery_delta: 0.12,
+        xp_delta: 60,
+        resolved_delta: 1
+      })
+    })
+      .then(res => res.json())
+      .then(d => {
+        addTerminalLog('success', `[DATABASE] Telemetry recorded: ${conceptTag} (+60 XP, Mastery +12%) ✓`)
+      })
+      .catch(err => console.log("[KOGNIT] Skill DB record error:", err))
 
     // Inject the prompt as a comment so the AI knows what we're solving
     const codeWithContext = `/* Exam Question: ${question.title}\n${question.prompt}\n*/\n\n${answer}`
     sendCodeUpdate(codeWithContext, typedLanguage || 'javascript')
-  }, [addTerminalLog, answer, typedLanguage, question, sendCodeUpdate])
+  }, [addTerminalLog, answer, typedLanguage, question, sendCodeUpdate, fetchWithAuth])
 
   const handleHint = useCallback(() => {
     setShowHint(true)
@@ -450,6 +490,28 @@ export default function ArenaPage() {
 
       const { run, compile } = data
       let outputProduced = false
+
+      // Determine concept tag from question category
+      let conceptTag = 'variables'
+      const cat = question.category.toLowerCase()
+      if (cat.includes('array')) conceptTag = 'arrays'
+      else if (cat.includes('cache') || cat.includes('state')) conceptTag = 'hash-maps'
+      else if (cat.includes('window') || cat.includes('pointer')) conceptTag = 'searching'
+      else if (cat.includes('recursion') || cat.includes('tree')) conceptTag = 'trees'
+
+      const isError = Boolean((run?.code !== 0 && run?.code !== undefined) || compile?.stderr)
+
+      // Persist real execution progress to database
+      fetchWithAuth(`${API_BASE}/skills/record`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          concept_tag: conceptTag,
+          action: isError ? "confusion" : "resolved",
+          mastery_delta: isError ? -0.02 : 0.06,
+          xp_delta: isError ? 10 : 30
+        })
+      }).catch(err => console.log("[KOGNIT] Run telemetry DB record error:", err))
 
       if (compile?.stderr) {
         addTerminalLog('warn', `[COMPILE] ${compile.stderr}`)
@@ -518,7 +580,7 @@ export default function ArenaPage() {
       <nav className="mx-auto mb-6 flex max-w-7xl items-center gap-8">
         <Link
           href="/"
-          className="font-mono text-sm uppercase tracking-[0.3em] text-primary/80 transition-colors hover:text-primary"
+          className="font-kognit text-base tracking-[0.25em] text-foreground transition-colors hover:text-primary"
         >
           KOGNIT
         </Link>

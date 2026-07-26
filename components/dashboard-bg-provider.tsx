@@ -7,7 +7,6 @@ export type BgThemeType =
   | "obsidian-slate"
   | "midnight-blue"
   | "cyber-emerald"
-  | "classroom"
   | "custom"
 
 interface DashboardBgContextType {

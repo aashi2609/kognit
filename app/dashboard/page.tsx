@@ -1005,7 +1005,7 @@ export default function DashboardPage() {
         <div className="flex items-center gap-8">
           <Link
             href="/"
-            className="font-mono text-sm font-bold uppercase tracking-[0.3em] text-primary/90 transition-colors hover:text-primary"
+            className="font-kognit text-base tracking-[0.25em] text-foreground transition-colors hover:text-primary"
           >
             KOGNIT
           </Link>
@@ -1062,7 +1062,7 @@ export default function DashboardPage() {
               <div className="flex flex-col gap-2 pb-2.5 border-b border-white/10">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="font-mono text-[11px] uppercase tracking-wider text-slate-200 font-bold whitespace-nowrap">
+                    <span className="font-kognit text-xs tracking-wider text-slate-200 font-bold whitespace-nowrap">
                       KOGNIT_WORKSPACE
                     </span>
                     <span className="font-mono text-[10px] text-muted-foreground/60 shrink-0">
@@ -1658,30 +1658,40 @@ export default function DashboardPage() {
           {/* Bottom Row: Console + Input */}
           <div className="flex gap-4 shrink-0" style={{ height: '220px' }}>
             {/* Console logger */}
-            <div className="relative flex-1 rounded-2xl border border-pink-400/10 bg-neutral-950/40 backdrop-blur-3xl hover:border-pink-400/20 transition-colors duration-300 overflow-hidden">
+            <div className="relative flex-1 rounded-2xl border border-white/10 bg-neutral-950/60 backdrop-blur-3xl transition-colors duration-300 overflow-hidden flex flex-col">
               <div className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(60% 40% at 80% 30%, oklch(0.78 0.07 350 / 5%), transparent 70%)' }} aria-hidden="true" />
-              <div className="absolute left-4 top-3 z-10 flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-pink-400/60" />
-                <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/50">console.output</span>
+              
+              {/* Dedicated Header Bar */}
+              <div className="relative z-10 flex items-center justify-between px-4 py-2 border-b border-white/10 bg-neutral-950/90 backdrop-blur-md shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="h-1.5 w-1.5 rounded-full bg-pink-400/80 shadow-[0_0_6px_#f472b6]" />
+                  <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-slate-300 font-bold">console.output</span>
+                </div>
+                <button
+                  onClick={() => setConsoleLines([])}
+                  className="font-mono text-[9px] uppercase text-muted-foreground/40 hover:text-white transition-colors"
+                >
+                  Clear Console
+                </button>
               </div>
               
+              {/* Scrollable Output Logs Container */}
               <div
                 ref={consoleRef}
-                className="no-scrollbar absolute inset-0 overflow-y-auto px-5"
-                style={{ paddingTop: '36px', paddingBottom: '12px' }}
+                className="no-scrollbar flex-1 overflow-y-auto px-4 py-3 font-mono text-xs flex flex-col gap-1"
               >
                 {consoleLines.map((entry, i) => (
                   <motion.div
                     key={i}
-                    initial={{ opacity: 0, x: -8 }}
+                    initial={{ opacity: 0, x: -6 }}
                     animate={{ opacity: 1, x: 0 }}
-                    className="flex items-start gap-3 py-1.5"
+                    className="flex items-start gap-2 py-0.5 leading-relaxed"
                   >
                     <span
-                      className={`font-mono text-[13px] leading-relaxed tracking-tight ${getLogTextColor(entry.type)}`}
+                      className={`font-mono text-[12px] tracking-tight ${getLogTextColor(entry.type)}`}
                       style={{
-                        textShadow: entry.type === 'error' ? '0 0 12px rgba(244,114,182,0.3)' : 
-                                    entry.type === 'success' ? '0 0 12px rgba(52,211,153,0.2)' : 'none'
+                        textShadow: entry.type === 'error' ? '0 0 10px rgba(244,114,182,0.25)' : 
+                                    entry.type === 'success' ? '0 0 10px rgba(52,211,153,0.2)' : 'none'
                       }}
                     >
                       {entry.text}
@@ -1689,8 +1699,8 @@ export default function DashboardPage() {
                   </motion.div>
                 ))}
                 {consoleLines.length === 0 && (
-                  <span className="font-mono text-[12px] text-slate-500">
-                    Awaiting output...
+                  <span className="font-mono text-[11px] text-slate-500 italic py-2">
+                    Awaiting console output...
                   </span>
                 )}
               </div>
