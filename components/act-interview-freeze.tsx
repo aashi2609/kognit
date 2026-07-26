@@ -38,7 +38,7 @@ export function ActInterviewFreeze({ onComplete }: { onComplete: () => void }) {
   }, [onComplete])
 
   useEffect(() => {
-    const t = window.setTimeout(skip, 6500)
+    const t = window.setTimeout(skip, 2500)
     return () => clearTimeout(t)
   }, [skip])
 

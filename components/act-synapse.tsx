@@ -86,10 +86,10 @@ export function ActSynapse({
   useEffect(() => {
     if (step !== "type") return
     if (visLines >= CODE.length) {
-      const t = window.setTimeout(() => setStep("probe"), 800)
+      const t = window.setTimeout(() => setStep("probe"), 300)
       return () => clearTimeout(t)
     }
-    const t = window.setTimeout(() => setVisLines((v) => v + 1), 320)
+    const t = window.setTimeout(() => setVisLines((v) => v + 1), 160)
     return () => clearTimeout(t)
   }, [step, visLines])
 
@@ -100,12 +100,12 @@ export function ActSynapse({
       const t = window.setTimeout(() => {
         setStep("fix")
         setFixMode("delete")
-      }, 1400)
+      }, 500)
       return () => clearTimeout(t)
     }
     const t = window.setTimeout(
       () => setProbeText(PROBE.slice(0, probeText.length + 1)),
-      24,
+      12,
     )
     return () => clearTimeout(t)
   }, [step, probeText])
@@ -114,10 +114,10 @@ export function ActSynapse({
   useEffect(() => {
     if (step !== "fix" || fixMode !== "delete") return
     if (fixText.length === 0) {
-      const t = window.setTimeout(() => setFixMode("type"), 260)
+      const t = window.setTimeout(() => setFixMode("type"), 120)
       return () => clearTimeout(t)
     }
-    const t = window.setTimeout(() => setFixText((s) => s.slice(0, -1)), 26)
+    const t = window.setTimeout(() => setFixText((s) => s.slice(0, -1)), 15)
     return () => clearTimeout(t)
   }, [step, fixMode, fixText])
 
@@ -125,12 +125,12 @@ export function ActSynapse({
   useEffect(() => {
     if (step !== "fix" || fixMode !== "type") return
     if (fixText.length >= FIXED_LINE.length) {
-      const t = window.setTimeout(() => setStep("done"), 500)
+      const t = window.setTimeout(() => setStep("done"), 250)
       return () => clearTimeout(t)
     }
     const t = window.setTimeout(
       () => setFixText(FIXED_LINE.slice(0, fixText.length + 1)),
-      45,
+      22,
     )
     return () => clearTimeout(t)
   }, [step, fixMode, fixText])

@@ -42,8 +42,8 @@ export function ActCloneConsole({ onComplete }: { onComplete: () => void }) {
   }, [])
 
   useEffect(() => {
-    const t1 = window.setTimeout(() => setWarn(true), 1500)
-    const t2 = window.setTimeout(skip, 4200)
+    const t1 = window.setTimeout(() => setWarn(true), 800)
+    const t2 = window.setTimeout(skip, 3800)
     return () => {
       clearTimeout(t1)
       clearTimeout(t2)

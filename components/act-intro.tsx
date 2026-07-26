@@ -142,13 +142,13 @@ export function ActIntro({
         {on && (
           <motion.div
             key="stage"
-            className="relative z-20 flex flex-col items-center pt-24 sm:pt-28 md:pt-32"
+            className="relative z-20 flex flex-col items-center"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.5, delay: 0.15 }}
           >
-            {/* Letters with parabolic arc animation */}
-            <div className="relative mb-2 flex h-40 items-end justify-center gap-1 sm:gap-2">
+            {/* Letters with parabolic arc animation — shifted down ~1cm to clear the lamp switch */}
+            <div className="relative mt-10 sm:mt-12 md:mt-14 mb-2 flex h-40 items-end justify-center gap-1 sm:gap-2">
               {LETTERS.map((letter, i) => {
                 const arc = letterArcs[i]
                 const kf = getArcKeyframes(arc)
@@ -253,15 +253,6 @@ export function ActIntro({
               </motion.div>
             </motion.div>
 
-            {phase === "confirm" && (
-              <motion.p
-                className="mt-1 font-mono text-xs uppercase tracking-[0.4em] text-primary"
-                initial={{ opacity: 0, y: -6 }}
-                animate={{ opacity: 1, y: 0 }}
-              >
-                ↓ entering the arena
-              </motion.p>
-            )}
           </motion.div>
         )}
       </AnimatePresence>
