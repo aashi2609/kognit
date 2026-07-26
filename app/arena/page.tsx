@@ -28,6 +28,8 @@ export interface Question {
   prompt: string
   defaultTimeLimit: number // seconds
   hints: string[]
+  testCases: { input: string; expected: string; explanation: string }[]
+  aiHintPrompt: string  // what the AI says when user clicks "Get AI Hint"
 }
 
 type LogType = 'info' | 'success' | 'error' | 'warn' | 'hint'
@@ -53,41 +55,63 @@ const ADAPTIVE_CHALLENGES: Record<Difficulty, Question> = {
   easy: {
     id: 1,
     difficulty: "easy",
-    category: "Array Boundary & Loop Range (Kognit Practice Match)",
+    category: "Arrays & Loops",
     title: "Array Boundary & Off-by-One Guard",
     prompt:
-      "In your previous Socratic coaching session, you debugged `sumRange(arr, n)` where `for (let i = 0; i <= n; i++)` caused an out-of-bounds array access.\n\nNow, write a robust function `sumRangeSafe(arr, n)` that calculates the sum of the first `n` elements of `arr`, returns `0` if `arr` is empty or invalid, and guarantees no out-of-bounds index access occurs.\n\nExample:\nInput: arr = [10, 20, 30, 40], n = 3\nOutput: 60\n\nRequirements:\n1. Ensure strict loop boundary `i < n` and `i < arr.length`.\n2. Handle empty array and null inputs gracefully.",
+      "Write a function `sumRangeSafe(arr, n)` that calculates the sum of the first `n` elements of `arr`.\n\nReturn `0` if `arr` is empty, null, or `n` is 0.\n\nExample:\nInput: arr = [10, 20, 30, 40], n = 3\nOutput: 60",
     defaultTimeLimit: 600,
     hints: [
-      "Ensure loop boundary uses strict inequality `i < n` and `i < arr.length`.",
-      "Check base cases where arr is empty or null before starting the loop.",
+      "Use strict less-than `i < n` in your loop — never `i <= n`.",
+      "Also guard against `i < arr.length` so you never go out of bounds.",
+      "Handle the edge case: what if arr is null, undefined, or empty?",
     ],
+    testCases: [
+      { input: "arr = [10, 20, 30, 40], n = 3", expected: "60", explanation: "Sum of first 3 elements: 10+20+30" },
+      { input: "arr = [5, 5, 5], n = 0", expected: "0", explanation: "n=0 means sum nothing" },
+      { input: "arr = [], n = 3", expected: "0", explanation: "Empty array returns 0" },
+      { input: "arr = [1, 2, 3], n = 10", expected: "6", explanation: "n > length — only sum what exists" },
+    ],
+    aiHintPrompt: "A student just clicked the hint button for the 'Array Boundary & Off-by-One Guard' problem. In 2 short spoken sentences, explain in simple words: what an off-by-one error is and how to avoid it using strict less-than in a for loop. Be encouraging, speak like a tutor, no code blocks.",
   },
   medium: {
     id: 2,
     difficulty: "medium",
-    category: "State Management & Caching (Kognit Practice Match)",
-    title: "LRU (Least Recently Used) Cache System",
+    category: "Data Structures & Caching",
+    title: "LRU Cache System",
     prompt:
-      "Implement an LRU (Least Recently Used) cache data structure with `get(key)` and `put(key, value)` operations.\n\nRequirements:\n1. Both operations must run in O(1) average time complexity.\n2. When the cache reaches its capacity limit, invalidate the least recently accessed item before inserting a new key.",
+      "Implement an LRU (Least Recently Used) cache with `get(key)` and `put(key, value)` operations.\n\nBoth must run in O(1) time. When capacity is reached, evict the least recently used item before inserting a new one.\n\nExample:\ncache = LRUCache(2)\ncache.put(1, 1)\ncache.put(2, 2)\ncache.get(1)  → 1\ncache.put(3, 3)  → evicts key 2\ncache.get(2)  → -1 (not found)",
     defaultTimeLimit: 1200,
     hints: [
-      "A Map object in JavaScript preserves key insertion order.",
-      "Re-inserting an existing key moves it to the end (most recent).",
+      "A JavaScript Map preserves insertion order — use that to track recency.",
+      "On every get or put of an existing key, delete it and re-insert it to move it to 'most recent'.",
+      "When at capacity, `map.keys().next().value` gives you the oldest (least recently used) key.",
     ],
+    testCases: [
+      { input: "put(1,1), put(2,2), get(1)", expected: "1", explanation: "Key 1 was accessed most recently" },
+      { input: "put(1,1), put(2,2), put(3,3), get(2)", expected: "-1", explanation: "Key 2 was evicted when 3 was added (capacity=2)" },
+      { input: "get(nonexistent)", expected: "-1", explanation: "Missing key returns -1" },
+    ],
+    aiHintPrompt: "A student just clicked hint for the LRU Cache problem. In 2 short spoken sentences, explain what LRU means and why a JavaScript Map (which preserves insertion order) is a good starting point. Be encouraging, speak like a tutor, no code blocks.",
   },
   hard: {
     id: 3,
     difficulty: "hard",
-    category: "Recursion & Data Structures (Kognit Practice Match)",
+    category: "Recursion & Trees",
     title: "Abstract Syntax Tree (AST) Evaluator",
     prompt:
-      "Write an evaluator function `evaluateAST(node)` that parses and evaluates a binary arithmetic expression tree.\n\nTree Node Structure:\n{\n  type: 'operator' | 'literal',\n  value: '+' | '-' | '*' | '/' | number,\n  left?: ASTNode,\n  right?: ASTNode\n}\n\nExample:\nRoot with operator '+' and left=literal(10), right=literal(5) -> Output: 15",
+      "Write `evaluateAST(node)` that evaluates a binary arithmetic expression tree.\n\nNode structure:\n{ type: 'operator' | 'literal', value: '+' | '-' | '*' | '/' | number, left?: Node, right?: Node }\n\nExample:\n{ type:'operator', value:'+', left:{type:'literal',value:10}, right:{type:'literal',value:5} }\n→ Output: 15",
     defaultTimeLimit: 1800,
     hints: [
-      "Use post-order tree traversal (evaluate left child, evaluate right child, apply root operator).",
-      "Check base case when node.type === 'literal'.",
+      "Base case first: if node.type === 'literal', just return node.value.",
+      "For operators, recursively evaluate left and right subtrees, then apply the operator.",
+      "This is post-order traversal: left → right → root.",
     ],
+    testCases: [
+      { input: "operator(+, literal(10), literal(5))", expected: "15", explanation: "10 + 5" },
+      { input: "operator(*, literal(3), operator(+, literal(2), literal(4)))", expected: "18", explanation: "3 * (2 + 4) = 18" },
+      { input: "literal(7)", expected: "7", explanation: "Leaf node just returns its value" },
+    ],
+    aiHintPrompt: "A student just clicked hint for the AST Evaluator problem. In 2 short spoken sentences, explain what post-order tree traversal means and why you evaluate children before the parent node. Be encouraging, speak like a tutor, no code blocks.",
   },
 }
 
@@ -247,6 +271,8 @@ export default function ArenaPage() {
   const [showHint, setShowHint] = useState(false)
   const [hintIndex, setHintIndex] = useState(0)
   const [submitted, setSubmitted] = useState(false)
+  const [showTestCases, setShowTestCases] = useState(false)
+  const [aiHintRequested, setAiHintRequested] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Code Execution & Output Terminal State
@@ -264,6 +290,8 @@ export default function ArenaPage() {
     setSubmitted(false)
     setShowHint(false)
     setAnswer("") // Completely blank workspace for mock exam
+    setShowTestCases(false)
+    setAiHintRequested(false)
     setTerminalLogs([
       { type: 'info', text: `[EXAM] Contextual Challenge Loaded: ${question.title}` },
       { type: 'info', text: '[EXAM] Write your solution from scratch in the workspace.' }
@@ -360,7 +388,16 @@ export default function ArenaPage() {
   const handleHint = useCallback(() => {
     setShowHint(true)
     setHintIndex((prev) => Math.min(prev + 1, question.hints.length - 1))
-  }, [question.hints.length])
+
+    // On first hint click, trigger AI voice guidance about the problem
+    if (!aiHintRequested) {
+      setAiHintRequested(true)
+      // Send the AI hint prompt as a code_update with special context
+      // so the AI speaks an encouraging explanation of where to start
+      const hintContext = `/* AI_HINT_REQUEST: ${question.aiHintPrompt} */\n// Student is looking at: ${question.title}`
+      sendCodeUpdate(hintContext, typedLanguage || 'javascript')
+    }
+  }, [question.hints.length, question.aiHintPrompt, question.title, aiHintRequested, sendCodeUpdate, typedLanguage])
 
   // Timer Presets
   const handleSelectPresetTime = (mins: number) => {
@@ -565,17 +602,14 @@ export default function ArenaPage() {
         <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
           {/* Left: Question + Workspace */}
           <div className="flex flex-col gap-4">
-            {/* Question Panel */}
+            {/* Question Panel — LeetCode style with tabs */}
             <GlassPanel label="problem.statement" accent={question.difficulty === "hard" ? "pink" : "emerald"}>
               <div className="px-6 pb-5 pt-8">
-                <div className="flex items-center justify-between gap-4 mb-2">
+                <div className="flex items-center justify-between gap-4 mb-4">
                   <h2 className="font-mono text-base font-bold uppercase tracking-[0.15em] text-foreground">
                     {question.title}
                   </h2>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="font-mono text-[10px] uppercase px-2 py-0.5 rounded bg-white/5 border border-white/10 text-muted-foreground/60">
-                      {question.category}
-                    </span>
                     <span
                       className={`rounded-md border px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.15em] font-bold ${
                         question.difficulty === "hard"
@@ -590,13 +624,60 @@ export default function ArenaPage() {
                   </div>
                 </div>
 
-                <div className="mt-4 whitespace-pre-wrap font-mono text-[13px] leading-relaxed text-muted-foreground/80 border-t border-white/5 pt-4">
-                  {question.prompt}
+                {/* Tab bar */}
+                <div className="flex items-center gap-1 mb-4 border-b border-white/5 pb-2">
+                  {[
+                    { id: 'problem', label: 'Problem' },
+                    { id: 'testcases', label: `Test Cases (${question.testCases.length})` },
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setShowTestCases(tab.id === 'testcases')}
+                      className={`px-3 py-1.5 rounded-lg font-mono text-[10px] uppercase tracking-widest transition-all ${
+                        (tab.id === 'testcases') === showTestCases
+                          ? 'bg-white/10 text-white border border-white/15'
+                          : 'text-muted-foreground/50 hover:text-white'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
                 </div>
+
+                {/* Problem description */}
+                {!showTestCases && (
+                  <div className="whitespace-pre-wrap font-mono text-[13px] leading-relaxed text-muted-foreground/80">
+                    {question.prompt}
+                  </div>
+                )}
+
+                {/* Test cases */}
+                {showTestCases && (
+                  <div className="flex flex-col gap-3">
+                    {question.testCases.map((tc, i) => (
+                      <div key={i} className="rounded-xl border border-white/5 bg-black/30 overflow-hidden">
+                        <div className="px-3 py-1.5 border-b border-white/5 bg-white/[0.02] flex items-center justify-between">
+                          <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground/40">Test Case {i + 1}</span>
+                          <span className="font-mono text-[9px] text-muted-foreground/30">{tc.explanation}</span>
+                        </div>
+                        <div className="grid grid-cols-2 divide-x divide-white/5 px-4 py-3 gap-4">
+                          <div>
+                            <span className="block font-mono text-[9px] uppercase tracking-widest text-sky-400/60 mb-1">Input</span>
+                            <code className="font-mono text-[11px] text-sky-200/80">{tc.input}</code>
+                          </div>
+                          <div className="pl-4">
+                            <span className="block font-mono text-[9px] uppercase tracking-widest text-emerald-400/60 mb-1">Expected</span>
+                            <code className="font-mono text-[11px] text-emerald-200/80">{tc.expected}</code>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </GlassPanel>
 
-            {/* Hint Panel */}
+            {/* Hint Panel — text hints + AI voice */}
             <AnimatePresence>
               {showHint && (
                 <motion.div
@@ -604,12 +685,35 @@ export default function ArenaPage() {
                   animate={{ height: "auto", opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                 >
-                  <GlassPanel label="socratic.hint">
-                    <div className="px-6 pb-4 pt-8">
-                      <p className="font-mono text-[12px] leading-relaxed text-sky-300/90 flex items-start gap-2">
-                        <span>💡</span>
-                        <span>{question.hints[hintIndex]}</span>
-                      </p>
+                  <GlassPanel label="hints">
+                    <div className="px-6 pb-5 pt-8">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="font-mono text-[10px] uppercase tracking-widest text-sky-400/70">
+                          Hint {hintIndex + 1} / {question.hints.length}
+                        </span>
+                        {aiHintRequested && (
+                          <span className="font-mono text-[9px] uppercase tracking-widest text-emerald-400/60 flex items-center gap-1">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            AI explained via voice
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        {question.hints.slice(0, hintIndex + 1).map((hint, i) => (
+                          <div key={i} className="flex items-start gap-2 rounded-lg border border-sky-400/10 bg-sky-400/5 px-4 py-3">
+                            <span className="text-sky-400/60 mt-0.5">💡</span>
+                            <p className="font-mono text-[12px] leading-relaxed text-sky-300/90">{hint}</p>
+                          </div>
+                        ))}
+                        {hintIndex < question.hints.length - 1 && (
+                          <button
+                            onClick={handleHint}
+                            className="mt-1 self-start rounded-lg border border-white/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground/60 hover:border-sky-400/30 hover:text-sky-300 hover:bg-sky-400/5 transition-all"
+                          >
+                            Next hint →
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </GlassPanel>
                 </motion.div>
@@ -738,9 +842,13 @@ export default function ArenaPage() {
                   <button
                     onClick={handleHint}
                     disabled={submitted}
-                    className="rounded-xl border border-white/10 px-4 py-2.5 font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70 transition-all hover:border-sky-400/40 hover:text-sky-300 hover:bg-sky-400/10 disabled:opacity-30"
+                    className={`rounded-xl border px-4 py-2.5 font-mono text-[11px] uppercase tracking-[0.18em] transition-all disabled:opacity-30 ${
+                      aiHintRequested
+                        ? 'border-sky-400/40 text-sky-300 bg-sky-400/10 hover:bg-sky-400/20'
+                        : 'border-white/10 text-muted-foreground/70 hover:border-sky-400/40 hover:text-sky-300 hover:bg-sky-400/10'
+                    }`}
                   >
-                    [ GET HINT ]
+                    {showHint ? '[ NEXT HINT ]' : '[ GET HINT + AI VOICE ]'}
                   </button>
                 </div>
 

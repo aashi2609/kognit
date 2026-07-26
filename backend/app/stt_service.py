@@ -50,9 +50,9 @@ async def transcribe_audio(audio_bytes: bytes, format: str = "webm") -> str | No
             if res:
                 return res
 
-    # 4. Fail-safe
+    # 4. Fail-safe — return None so the turn goes idle rather than hallucinating a question
     print("[KOGNIT] STT fallback: all providers failed or unavailable")
-    return "Could you give me a hint on how to fix this code error?"
+    return None
 
 
 async def _whisper_groq(api_key: str, audio_bytes: bytes, format: str) -> str | None:

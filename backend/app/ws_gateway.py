@@ -34,6 +34,7 @@ _active_connections: dict[str, WebSocket] = {}
 _analysis_tasks: dict[str, asyncio.Task] = {}
 _turn_locks: dict[str, asyncio.Lock] = {}
 _barge_in_flags: dict[str, asyncio.Event] = {}
+_session_user_ids: dict[str, str] = {}  # session_id → user_id for skill mastery
 
 CODE_ANALYSIS_DEBOUNCE = 1.5  # seconds
 
@@ -76,6 +77,7 @@ async def handle_websocket(websocket: WebSocket, session_id: str):
             arena_session_id = new_arena.id
             
     _active_connections[session_id] = websocket
+    _session_user_ids[session_id] = user_id
     _get_turn_lock(session_id)
     _get_barge_in(session_id)
     print(f"[KOGNIT] WS connected: {session_id} for user {user_id}")
@@ -106,6 +108,7 @@ async def handle_websocket(websocket: WebSocket, session_id: str):
         _active_connections.pop(session_id, None)
         _turn_locks.pop(session_id, None)
         _barge_in_flags.pop(session_id, None)
+        _session_user_ids.pop(session_id, None)
         task = _analysis_tasks.pop(session_id, None)
         if task and not task.done():
             task.cancel()
@@ -170,8 +173,8 @@ async def _debounced_analysis(session_id: str, ws: WebSocket, code: str, languag
         return
 
     async with lock:
-        _get_barge_in(session_id).clear()  # clear any barge-in we set above before starting fresh
-        await _run_ai_turn(session_id, ws, code, language, user_question=None)
+        _get_barge_in(session_id).clear()
+        await _run_ai_turn(session_id, ws, code, language, user_question=None, user_id=_session_user_ids.get(session_id))
 
 
 # ── Voice path ────────────────────────────────────────────────────────
@@ -190,11 +193,28 @@ async def _handle_audio_in(session_id: str, ws: WebSocket, event: dict):
         await _send_event(ws, {"type": "ai_state", "state": "idle"})
         return
 
-    # Discard noise transcripts — single punctuation, whitespace-only,
-    # or very short strings that are clearly not real speech
+    # Discard noise transcripts — Whisper hallucinates polite phrases on silence
     transcript_clean = transcript.strip().strip(".,!?;: ")
-    if len(transcript_clean) < 3:
-        print(f"[KOGNIT] STT noise discarded: '{transcript}'")
+
+    # Known Whisper hallucinations on silence/background noise
+    _WHISPER_HALLUCINATIONS = {
+        "thank you", "thanks", "thank you very much", "thanks for watching",
+        "you", "bye", "goodbye", "see you", "see you later", "okay", "ok",
+        "yes", "no", "hmm", "uh", "um", "uh huh", "mm hmm",
+        "subtitles by", "subtitled by", "transcribed by",
+        "i'm going to go to the next one", "you can go to the next one",
+        "i'm a little girl", "oh yeah",
+    }
+
+    if len(transcript_clean) < 3 or transcript_clean.lower() in _WHISPER_HALLUCINATIONS:
+        print(f"[KOGNIT] STT noise/hallucination discarded: '{transcript}'")
+        await _send_event(ws, {"type": "ai_state", "state": "idle"})
+        return
+
+    # Also drop single-word transcripts that aren't meaningful questions
+    word_count = len(transcript_clean.split())
+    if word_count == 1 and transcript_clean.lower() not in ("help", "hint", "run", "error", "fix", "why", "how", "what"):
+        print(f"[KOGNIT] STT single-word noise discarded: '{transcript}'")
         await _send_event(ws, {"type": "ai_state", "state": "idle"})
         return
 
@@ -203,14 +223,13 @@ async def _handle_audio_in(session_id: str, ws: WebSocket, event: dict):
 
     lock = _get_turn_lock(session_id)
     async with lock:
-        # Fetch session AFTER acquiring the lock so we always use the
-        # latest code snapshot even if a code_update arrived during STT.
         session = get_session(session_id)
         await _run_ai_turn(
             session_id, ws,
             code=session.get("code_snapshot", ""),
             language=session.get("language", ""),
             user_question=transcript,
+            user_id=_session_user_ids.get(session_id),
         )
 
 
@@ -222,6 +241,7 @@ async def _run_ai_turn(
     code: str,
     language: str,
     user_question: str | None,
+    user_id: str | None = None,
 ) -> None:
     """
     Single-flight AI turn. Streams Gemini sentences to ElevenLabs chunks to frontend.
@@ -247,6 +267,7 @@ async def _run_ai_turn(
             conversation_history=session.get("messages", []),
             last_error=session.get("last_error"),
             user_question=user_question,
+            user_id=user_id,
         ):
             if barge_in.is_set():
                 print(f"[KOGNIT] Barge-in: stopping turn mid-stream ({session_id})")
@@ -270,7 +291,7 @@ async def _run_ai_turn(
             # Stream sentence to TTS, piping chunks to frontend as they arrive
             sent = await stream_tts_to_ws(sentence, ws)
 
-            # ElevenLabs not configured — fall back to whole-sentence audio
+            # ElevenLabs failed or not configured — fall back to browser TTS signal
             if not sent:
                 audio = await text_to_speech(sentence)
                 if audio:
@@ -278,6 +299,13 @@ async def _run_ai_turn(
                         "type": "audio_out",
                         "audio": audio_to_base64(audio),
                         "format": "mp3",
+                    })
+                else:
+                    # Neither streaming nor full TTS worked — tell frontend to use
+                    # browser Web Speech API as last resort
+                    await _send_event(ws, {
+                        "type": "tts_fallback",
+                        "text": sentence,
                     })
 
             if barge_in.is_set():

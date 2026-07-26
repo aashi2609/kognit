@@ -24,6 +24,7 @@ from app.llm_router import get_available_models
 from app.auth import get_current_user
 
 import httpx
+import os
 
 # ── Lifespan ──────────────────────────────────────────────────────────
 @asynccontextmanager
@@ -53,9 +54,12 @@ app = FastAPI(
 )
 
 # ── CORS ──────────────────────────────────────────────────────────────
+_cors_origins_raw = os.getenv("BACKEND_CORS_ORIGINS", "http://localhost:3000")
+_cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -240,6 +244,46 @@ async def get_skills(user_id: str = Depends(get_current_user), db: AsyncSession 
     )
     skills = result.scalars().all()
     return skills
+
+
+@app.get("/skills/summary", tags=["skills"])
+async def get_skills_summary(user_id: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """
+    Returns a summary combining user files (languages used) and skill mastery.
+    Used by the Skills page to show personalised data based on what the user has actually built.
+    """
+    from collections import Counter
+
+    # Files the user has created
+    files_result = await db.execute(
+        select(File).where(File.user_id == user_id)
+    )
+    files = files_result.scalars().all()
+    lang_counts = Counter(f.language for f in files if f.language)
+
+    # Skill mastery records
+    mastery_result = await db.execute(
+        select(SkillMastery).where(SkillMastery.user_id == user_id)
+    )
+    mastery_records = mastery_result.scalars().all()
+    mastery_by_tag = {m.concept_tag: m for m in mastery_records}
+
+    return {
+        "file_count": len(files),
+        "languages_used": dict(lang_counts.most_common()),
+        "primary_language": lang_counts.most_common(1)[0][0] if lang_counts else None,
+        "mastery_records": [
+            {
+                "concept_tag": m.concept_tag,
+                "mastery_level": m.mastery_level,
+                "confusion_count": m.confusion_count,
+                "resolved_count": m.resolved_count,
+                "xp": m.xp,
+                "last_practiced_at": m.last_practiced_at.isoformat() if m.last_practiced_at else None,
+            }
+            for m in mastery_records
+        ],
+    }
 
 @app.get("/arena", tags=["arena"])
 async def get_arena_sessions(user_id: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):

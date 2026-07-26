@@ -35,7 +35,7 @@ NEVER be vague. NEVER say "something looks off" or "take a look at line 5". ALWA
 Personality & Format:
 - Short, clear, and direct (1-2 sentences max). Spoken aloud via text-to-speech.
 - Plain English only in response_text. No markdown, no code blocks, no bullet points.
-- NEVER use empty filler like "great question", "good thinking", or "interesting".
+- NEVER use empty filler like "great question", "good thinking", "interesting", "thank you", "of course", or "sure".
 
 LANGUAGE-AWARE RULES:
 - Python: colons after control statements (if/for/def/while), indentation, mismatched brackets. NEVER suggest semicolons.
@@ -83,6 +83,7 @@ def parse_json_response(raw_text: str) -> tuple[str, str]:
     try:
         data = json.loads(raw_text)
         text = str(data.get("response_text", "")).strip()
+        text = _strip_markdown(text)
         emotion = str(data.get("emotion", "neutral")).strip().lower()
         if emotion not in ("encouraging", "thinking", "concerned", "celebratory", "neutral"):
             emotion = "neutral"
@@ -92,6 +93,7 @@ def parse_json_response(raw_text: str) -> tuple[str, str]:
         response_match = _re2.search(r'"response_text"\s*:\s*"((?:[^"\\]|\\.)*)"', raw_text)
         emotion_match = _re2.search(r'"emotion"\s*:\s*"([^"]+)"', raw_text)
         text = response_match.group(1).replace('\\"', '"').replace('\\n', '\n') if response_match else ""
+        text = _strip_markdown(text)
         emotion = emotion_match.group(1).strip().lower() if emotion_match else "neutral"
         if emotion not in ("encouraging", "thinking", "concerned", "celebratory", "neutral"):
             emotion = "neutral"
@@ -258,6 +260,45 @@ async def analyze_code(
 import re as _re
 _SENTENCE_END = _re.compile(r'(?<=[.!?])\s+')
 
+
+def _extract_concept_tag(response_text: str, language: str) -> str:
+    """
+    Derive a meaningful concept tag from the AI's response text.
+    Falls back to language name if no specific concept is detected.
+    """
+    t = response_text.lower()
+    if any(k in t for k in ("semicolon", "missing ;", "end of statement")):
+        return "semicolons"
+    if any(k in t for k in ("indent", "indentation")):
+        return "indentation"
+    if any(k in t for k in ("colon", "missing :")):
+        return "control-flow-syntax"
+    if any(k in t for k in ("parenthes", "closing )", "opening (")):
+        return "parentheses"
+    if any(k in t for k in ("curly brace", "closing }", "opening {")):
+        return "braces"
+    if any(k in t for k in ("bracket", "closing ]", "opening [")):
+        return "brackets"
+    if any(k in t for k in ("return", "missing return")):
+        return "return-statements"
+    if any(k in t for k in ("null", "undefined", "nullpointer", "none")):
+        return "null-handling"
+    if any(k in t for k in ("loop", "for ", "while ")):
+        return "loops"
+    if any(k in t for k in ("function", "def ", "method")):
+        return "functions"
+    if any(k in t for k in ("class ", "object", "instance")):
+        return "oop"
+    if any(k in t for k in ("import", "module", "package")):
+        return "imports"
+    if any(k in t for k in ("array", "list", "index")):
+        return "arrays"
+    if any(k in t for k in ("string", "char", "quote")):
+        return "strings"
+    if any(k in t for k in ("type", "cast", "int ", "float ")):
+        return "types"
+    return language.lower() or "general"
+
 async def analyze_code_stream(
     code: str,
     language: str,
@@ -269,6 +310,17 @@ async def analyze_code_stream(
     """
     Async generator that yields (sentence, emotion) tuples as they arrive.
     """
+    # ── AI hint request from Arena ────────────────────────────────────
+    import re as _hint_re
+    hint_match = _hint_re.search(r'/\*\s*AI_HINT_REQUEST:\s*(.*?)\s*\*/', code, _hint_re.DOTALL)
+    if hint_match:
+        hint_prompt = hint_match.group(1).strip()
+        # Use a dedicated plain-text call — bypasses the JSON system prompt
+        hint_text = await _call_hint(hint_prompt)
+        if hint_text:
+            yield hint_text, "encouraging"
+        return
+
     clean_code, exam_question, execution_error, execution_success = extract_and_clean_code(code)
 
     resolved_this_turn = False
@@ -370,36 +422,12 @@ async def analyze_code_stream(
         )
     messages.append({"role": "user", "content": "\n\n".join(context_parts)})
 
-    # Try fetching from Gemini
+    # Try fetching from GROQ first (better for conversational responses)
     gemini_key = os.getenv("GEMINI_API_KEY")
     groq_key = os.getenv("GROQ_API_KEY")
     streamed_any = False
 
-    if gemini_key and not text_breaker_open():
-        raw_llm_response = await _call_gemini(gemini_key, messages)
-        if raw_llm_response:
-            streamed_any = True
-            response_text, emotion = parse_json_response(raw_llm_response)
-
-            if resolved_this_turn:
-                emotion = "celebratory"
-
-            if response_text.strip() == "__SILENT__":
-                yield "__SILENT__", emotion
-                return
-
-            if user_id:
-                if emotion == "celebratory":
-                    await update_skill_mastery(user_id, language, True)
-                elif emotion in ("concerned", "encouraging"):
-                    await update_skill_mastery(user_id, language, False)
-
-            sentences = _SENTENCE_END.split(response_text)
-            for sentence in sentences:
-                if sentence.strip():
-                    yield sentence.strip(), emotion
-
-    if not streamed_any and groq_key:
+    if groq_key:
         raw_llm_response = await _call_groq(groq_key, messages)
         if raw_llm_response:
             streamed_any = True
@@ -413,10 +441,36 @@ async def analyze_code_stream(
                 return
 
             if user_id:
+                concept = _extract_concept_tag(response_text, language)
                 if emotion == "celebratory":
-                    await update_skill_mastery(user_id, language, True)
+                    await update_skill_mastery(user_id, concept, True)
                 elif emotion in ("concerned", "encouraging"):
-                    await update_skill_mastery(user_id, language, False)
+                    await update_skill_mastery(user_id, concept, False)
+
+            sentences = _SENTENCE_END.split(response_text)
+            for sentence in sentences:
+                if sentence.strip():
+                    yield sentence.strip(), emotion
+
+    if not streamed_any and gemini_key and not text_breaker_open():
+        raw_llm_response = await _call_groq(groq_key, messages)
+        if raw_llm_response:
+            streamed_any = True
+            response_text, emotion = parse_json_response(raw_llm_response)
+
+            if resolved_this_turn:
+                emotion = "celebratory"
+
+            if response_text.strip() == "__SILENT__":
+                yield "__SILENT__", emotion
+                return
+
+            if user_id:
+                concept = _extract_concept_tag(response_text, language)
+                if emotion == "celebratory":
+                    await update_skill_mastery(user_id, concept, True)
+                elif emotion in ("concerned", "encouraging"):
+                    await update_skill_mastery(user_id, concept, False)
 
             sentences = _SENTENCE_END.split(response_text)
             for sentence in sentences:
@@ -433,10 +487,11 @@ async def analyze_code_stream(
 
     if fallback_text and fallback_text.strip() != "__SILENT__":
         if user_id:
+            concept = _extract_concept_tag(fallback_text, language)
             if emotion == "celebratory":
-                await update_skill_mastery(user_id, language, True)
+                await update_skill_mastery(user_id, concept, True)
             elif fallback_text:
-                await update_skill_mastery(user_id, language, False)
+                await update_skill_mastery(user_id, concept, False)
         yield fallback_text.strip(), emotion
 
 
@@ -852,8 +907,99 @@ def _heuristic_socratic_fallback(
     return None, "neutral"
 
 
+async def _call_hint(prompt: str) -> str | None:
+    """
+    Plain-text LLM call specifically for Arena hint explanations.
+    No JSON format — returns a natural spoken sentence directly.
+    Tries Groq first (best for conversational plain text), then Gemini.
+    """
+    import httpx
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are Kognit, a friendly AI coding tutor explaining a problem to a student. "
+                "Respond in exactly 1-2 short spoken sentences. "
+                "Plain English only — no code blocks, no markdown, no asterisks, no bullet points. "
+                "Be warm, simple, and encouraging."
+            ),
+        },
+        {"role": "user", "content": prompt},
+    ]
+
+    # Try Groq without json_object mode
+    groq_key = os.getenv("GROQ_API_KEY")
+    if groq_key:
+        headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
+        async with httpx.AsyncClient(verify=_SSL_VERIFY, timeout=10) as client:
+            for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+                try:
+                    resp = await client.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers=headers,
+                        json={"model": model, "messages": messages, "max_tokens": 120, "temperature": 0.7},
+                    )
+                    if resp.status_code == 200:
+                        text = resp.json()["choices"][0]["message"]["content"].strip()
+                        # Strip any accidental markdown
+                        text = _strip_markdown(text)
+                        if len(text) > 10:
+                            print(f"[KOGNIT] Hint ({model}): '{text[:60]}'")
+                            return text
+                    elif resp.status_code == 429:
+                        continue
+                except Exception:
+                    continue
+
+    # Try Gemini with plain-text instruction
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if gemini_key and not text_breaker_open():
+        async with httpx.AsyncClient(verify=_SSL_VERIFY, timeout=8) as client:
+            for model_name in GEMINI_MODELS:
+                try:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+                    body = {
+                        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                        "systemInstruction": {"parts": [{"text": messages[0]["content"]}]},
+                        "generationConfig": {"maxOutputTokens": 120, "temperature": 0.7},
+                    }
+                    resp = await client.post(url, headers={"x-goog-api-key": gemini_key, "Content-Type": "application/json"}, json=body)
+                    if resp.status_code == 200:
+                        parts = resp.json().get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                        text = next((p["text"].strip() for p in parts if "text" in p), None)
+                        if text:
+                            text = _strip_markdown(text)
+                            if len(text) > 10:
+                                return text
+                    elif resp.status_code == 429:
+                        continue
+                except Exception:
+                    continue
+
+    return None
+
+
+def _strip_markdown(text: str) -> str:
+    """Remove markdown formatting so TTS doesn't speak asterisks and symbols."""
+    import re
+    text = re.sub(r'\*{1,3}(.*?)\*{1,3}', r'\1', text)   # **bold** / *italic*
+    text = re.sub(r'`{1,3}[^`]*`{1,3}', '', text)          # `code` / ```blocks```
+    text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)  # ## headers
+    text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)  # bullet points
+    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)   # [links](url)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+
 async def _call_llm(messages: list[dict]) -> str | None:
     """Call the best available LLM with the given messages. Returns None if unavailable."""
+    groq_key = os.getenv("GROQ_API_KEY")
+    if groq_key:
+        result = await _call_groq(groq_key, messages)
+        if result:
+            return result
+
     gemini_key = os.getenv("GEMINI_API_KEY")
     if gemini_key:
         if text_breaker_open():
@@ -862,12 +1008,6 @@ async def _call_llm(messages: list[dict]) -> str | None:
             result = await _call_gemini(gemini_key, messages)
             if result:
                 return result
-
-    groq_key = os.getenv("GROQ_API_KEY")
-    if groq_key:
-        result = await _call_groq(groq_key, messages)
-        if result:
-            return result
 
     openai_key = os.getenv("OPENAI_API_KEY")
     if openai_key:
@@ -971,6 +1111,7 @@ async def _call_groq(api_key: str, messages: list[dict]) -> str | None:
     Call Groq chat completions (OpenAI-compatible API).
     Uses llama-3.3-70b-versatile — free tier, fast, excellent for conversation.
     Falls back to llama-3.1-8b-instant if 70b is rate-limited.
+    Enforces JSON output so parse_json_response always gets clean input.
     """
     import httpx
 
@@ -980,6 +1121,17 @@ async def _call_groq(api_key: str, messages: list[dict]) -> str | None:
         "Content-Type": "application/json",
     }
 
+    # Reinforce JSON format for Groq — Llama models need an explicit reminder
+    groq_messages = []
+    for msg in messages:
+        if msg["role"] == "system":
+            groq_messages.append({
+                "role": "system",
+                "content": msg["content"] + "\n\nCRITICAL: Your entire response MUST be valid JSON in this exact shape: {\"response_text\": \"...\", \"emotion\": \"...\"} — nothing else, no markdown, no explanation outside the JSON.",
+            })
+        else:
+            groq_messages.append(msg)
+
     async with httpx.AsyncClient(verify=_SSL_VERIFY, timeout=15) as client:
         for model in groq_models:
             try:
@@ -988,17 +1140,34 @@ async def _call_groq(api_key: str, messages: list[dict]) -> str | None:
                     headers=headers,
                     json={
                         "model": model,
-                        "messages": messages,
+                        "messages": groq_messages,
                         "max_tokens": 400,
                         "temperature": 0.7,
+                        "response_format": {"type": "json_object"},
                     },
                 )
                 if response.status_code == 200:
                     text = response.json()["choices"][0]["message"]["content"] or ""
                     print(f"[KOGNIT] Groq ({model}) returned {len(text)} chars")
+                    if len(text.strip()) < 10:
+                        print(f"[KOGNIT] Groq ({model}) response too short, skipping")
+                        continue
                     return text.strip() or None
                 elif response.status_code == 429:
                     print(f"[KOGNIT] Groq ({model}): rate limited, trying next...")
+                    continue
+                elif response.status_code == 400:
+                    # json_object mode not supported or bad request — retry without it
+                    print(f"[KOGNIT] Groq ({model}) 400 — retrying without response_format")
+                    retry = await client.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers=headers,
+                        json={"model": model, "messages": groq_messages, "max_tokens": 400, "temperature": 0.7},
+                    )
+                    if retry.status_code == 200:
+                        text = retry.json()["choices"][0]["message"]["content"] or ""
+                        if len(text.strip()) >= 10:
+                            return text.strip() or None
                     continue
                 else:
                     print(f"[KOGNIT] Groq ({model}) error {response.status_code}: {response.text[:100]}")

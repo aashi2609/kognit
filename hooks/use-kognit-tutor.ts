@@ -114,6 +114,11 @@ export function useKognitTutor() {
           if (data.type === 'tts_chunk' && data.audio) {
             enqueueAudio(data.audio, data.format || 'mp3')
           }
+
+          if (data.type === 'tts_fallback' && data.text) {
+            // ElevenLabs quota exhausted — use browser Web Speech API
+            speakTextFallback(data.text)
+          }
         } catch (e) {
           console.warn('[KOGNIT] WS parse error:', e)
         }
