@@ -9,17 +9,50 @@ __v0_jsx-dev-runtime.ts
 # Environment variables
 .env
 .env.*
+.env.local
+.env.production
+backend/.env
 !.env.example
 
 # Common ignores
 node_modules
 .next/
 .DS_Store
+dist/
+build/
 
 # Python backend
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 backend/.venv/
+backend/venv/
 backend/*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+
+# Railway
+.railway/
+
+# Documentation (keep local only)
+RAILWAY_DEPLOY.md
+railway-deploy-checklist.md
 
 
+RAILWAY_DEPLOY.md
