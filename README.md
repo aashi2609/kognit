@@ -1,18 +1,21 @@
+```text
+ ██╗  ██╗ ██████╗  ██████╗ ███╗   ██╗██╗████████╗
+ ██║ ██╔╝██╔═══██╗██╔════╝ ████╗  ██║██║╚══██╔══╝
+ █████═╝ ██║   ██║██║  ███╗██╔██╗ ██║██║   ██║   
+ ██╔═██╗ ██║   ██║██║   ██║██║╚██╗██║██║   ██║   
+ ██║  ██╗╚██████╔╝╚██████╔╝██║ ╚████║██║   ██║   
+ ╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝   
+```
+
 <div align="center">
 
-# 🧠 Kognit — AI Coding Tutor
+### `[ REAL-TIME SOCRATIC AI CODING TUTOR v1.0 ]`
 
-### **Real-Time Socratic AI Tutor & Interactive Coding Arena**
+*The code beneath your fingertips is a puzzle — Kognit guides you to solve it.*
 
-[![Next.js 16](https://img.shields.io/badge/Next.js-16.2.6-black?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org/)
-[![React 19](https://img.shields.io/badge/React-19.0-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Neon_DB-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://neon.tech/)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4.2-38BDF8?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+<br/>
 
-*Kognit is a real-time AI coding tutor that watches you write code, speaks to you through an emotion-aware animated character, and helps you learn by asking guiding Socratic questions — without giving away raw answers.*
+🐍 **Python** `3.11+` &nbsp;•&nbsp; ⚡ **FastAPI** `0.115+` &nbsp;•&nbsp; ⚛️ **React** `19` &nbsp;•&nbsp; [![Next.js 16](https://img.shields.io/badge/Framework-Next.js_16-black?style=flat-square&logo=next.js)](https://nextjs.org/) [![Gemini](https://img.shields.io/badge/LLM-Gemini_2.5-8E75B2?style=flat-square&logo=google)](https://deepmind.google/technologies/gemini/) [![Groq Whisper](https://img.shields.io/badge/STT-Groq_Whisper-orange?style=flat-square)](https://groq.com/) [![ElevenLabs](https://img.shields.io/badge/TTS-ElevenLabs-black?style=flat-square)](https://elevenlabs.io/) [![Neon DB](https://img.shields.io/badge/Database-Neon_Postgres-00E599?style=flat-square&logo=postgresql&logoColor=black)](https://neon.tech/) [![License MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
 ---
 
